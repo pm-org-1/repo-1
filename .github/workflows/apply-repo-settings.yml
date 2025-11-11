@@ -35,27 +35,6 @@ jobs:
                 const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
                 console.log(`Input repos: ${repos.length === 1 ? repos[0] : repos.join(', ')}`);
 
-                // pr-title-check.yml content
-                const prTitleCheckYml = `
-                name: Validate PR Title
-
-                on:
-                    pull_request:
-                        types: [opened, edited, synchronize]
-
-                jobs:
-                    validate-pr-title:
-                        runs-on: ubuntu-latest #[self-hosted, bolt-ubuntu]
-                        steps:
-                        - name: Check PR title format
-                          run: |
-                            TITLE="$${{ github.event.pull_request.title }}"
-                            if [[ ! "$TITLE" =~ ^(IAS|OPS|DEV)-[0-9]+:[[:space:]] ]]; then
-                                echo "❌ Pull request title must reference a Jira Work Item. For example: IAS-12650: <pr title>"
-                                exit 1
-                            fi
-
-                `;
 
                 for (const repo of repos) {
                     console.log(`Applying settings to ${owner}/${repo}...`);
@@ -69,9 +48,8 @@ jobs:
                         squash_merge_commit_title: 'PR_TITLE',
                         squash_merge_commit_message: 'PR_BODY'
                     });
-                    console.log(`repository settings Response status: ${response.status}`);
+                    console.log(`repository settings Response status: ${response.}`);
 
-                    
 
 
                     // 3. Ensure pr-title-check.yml exists
@@ -81,7 +59,7 @@ jobs:
                             owner,
                             repo
                         });
-                        console.log(`check pr-title-check.yml existence Response status: ${response}`);
+                        console.log(`check pr-title-check.yml existence Response status: ${response.status}`);
                         prTitleCheckExists = true;
                     } catch (e) {
                         prTitleCheckExists = false;
@@ -94,6 +72,8 @@ jobs:
                             repo,
                             path: '.github/workflows/pr-title-check.yml',
                             message: 'Add pr-title-check workflow',
+                            const fs = require('fs');
+                            const prTitleCheckYml = fs.readFileSync('.github/workflows/templates/pr-title-check.yml', 'utf8');
                             content: Buffer.from(prTitleCheckYml).toString('base64'),
                             committer: {
                                 name: 'github-actions[bot]',
