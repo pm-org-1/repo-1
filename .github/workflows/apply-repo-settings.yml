@@ -45,6 +45,31 @@ jobs:
                 // Define approving teams
                 const teamSlugs = ["ias-team-admin"];
                 console.log(`Approving teams slugs: ${teamSlugs.join(', ')}`);
+                const approving_teams = [];
+
+                // Get team ID for all the teams from GitHub.
+                async function getTeamId(teamSlug) {
+                    try {
+                        const response = await github.request('GET /orgs/{org}/teams/{team_slug}', {
+                            org: owner,
+                            team_slug: teamSlug
+                        });
+                        return response.data.id;
+                    } catch (error) {
+                        console.error(`Failed to get team ID for ${teamSlug}: ${error.message}`);
+                        throw error;
+                    }
+                }
+
+                // Fetch team IDs and update teams array
+                for (const teamSlug of teamSlugs) {
+                    const id = await getTeamId(teamSlug);
+                    if (id) {
+                        approving_teams.push({"type": "Team", "id": id });
+                    }
+                }
+
+                console.log(`Approving teams: ${JSON.stringify(approving_teams)}`);
 
                 // Define environments and rules
                 const environments = [
@@ -332,33 +357,7 @@ jobs:
                     }
                     else {
                         console.log(`Tag ruleset already exists in ${owner}/${repo}, skipping creation as per input.`);
-                    }
-
-                    const approving_teams = [];
-
-                    // Get team ID for all the teams from GitHub.
-                    async function getTeamId(teamSlug) {
-                        try {
-                            const response = await github.request('GET /orgs/{org}/teams/{team_slug}', {
-                                org: owner,
-                                team_slug: teamSlug
-                            });
-                            return response.data.id;
-                        } catch (error) {
-                            console.error(`Failed to get team ID for ${teamSlug}: ${error.message}`);
-                            throw error;
-                        }
-                    }
-
-                    // Fetch team IDs and update teams array
-                    for (const teamSlug of teamSlugs) {
-                        const id = await getTeamId(teamSlug);
-                        if (id) {
-                            approving_teams.push({"type": "Team", "id": id });
-                        }
-                    }
-
-                    console.log(`Approving teams: ${JSON.stringify(approving_teams)}`);                    
+                    }                   
 
                     // Create environments with protection rules
                     async function createEnvironment(env) {
