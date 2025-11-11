@@ -325,7 +325,7 @@ jobs:
                                 // Create environment deployment branch policies if any
                                 if (env.deployment_branch_policies) {
                                     for (const policy of env.deployment_branch_policies) {
-                                        await github.request('POST /repos/{owner}/{repo}/environments/{ }/deployment-branch-policies', {
+                                        await github.request('POST /repos/{owner}/{repo}/environments/{environment_name}/deployment-branch-policies', {
                                             owner,
                                             repo,
                                             environment_name: env.name,
