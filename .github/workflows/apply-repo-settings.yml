@@ -53,8 +53,6 @@ jobs:
                 const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1'; 
                 console.log(`Force recreate is set : ${forceRecreate}`);
 
-                let response;
-
                 // Configurations section.                
                 // Branches to apply protection rules
                 const defaultBranches = ['main', 'dev'];
@@ -65,8 +63,9 @@ jobs:
                 console.log(`Approving teams slugs: ${teamSlugs.join(', ')}`);
                 const approving_teams = [];
 
-                // Start processing each repo
+                // Variable to hold API response
                 let response;
+                const fs = require('fs');
 
                 // Get team ID by team slug from GitHub.
                 async function getTeamId(teamSlug) {
@@ -134,9 +133,9 @@ jobs:
                             }
                         ]
                     }
-                ];                
-
-                const fs = require('fs');
+                ];
+                
+                // Start processing each repo
                 for (const repo of repos) {
                     console.log(`Applying settings to ${owner}/${repo}...`);
                     // 1. Update repository settings
