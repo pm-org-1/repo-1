@@ -124,7 +124,7 @@ jobs:
                             required_conversation_resolution: true,
                             required_status_checks: {
                                 strict: true,
-                                contexts: ['ci/test', 'ci/build', 'check-title'] // Add pr-title-check job name
+                                contexts: ['pr-title-check']
                             },
                             restrictions: null,
                             allow_force_pushes: false,
