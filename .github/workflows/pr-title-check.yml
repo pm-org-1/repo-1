@@ -1,0 +1,19 @@
+
+name: Validate PR Title
+
+on:
+    pull_request:
+        types: [opened, edited, synchronize]
+
+jobs:
+    validate-pr-title:
+        runs-on: ubuntu-latest #[self-hosted, bolt-ubuntu]
+        steps:
+        - name: Check PR title format
+          run: |
+            TITLE=""
+            if [[ ! "$TITLE" =~ ^IAS-[0-9]+: ]]; then
+                echo "❌ Pull request title must reference a Jira Work Item. For example: IAS-12650: <pr title>"
+                exit 1
+            fi
+
