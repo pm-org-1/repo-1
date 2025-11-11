@@ -35,7 +35,6 @@ jobs:
                 const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
                 console.log(`Input repos: ${repos.length === 1 ? repos[0] : repos.join(', ')}`);
 
-
                 for (const repo of repos) {
                     console.log(`Applying settings to ${owner}/${repo}...`);
                     // 1. Update repository settings
@@ -67,13 +66,14 @@ jobs:
 
                     if (!prTitleCheckExists) {
                         // Create pr-title-check.yml in the repo
+                        const fs = require('fs');
+                        const prTitleCheckYml = fs.readFileSync('.github/workflows/templates/pr-title-check.yml', 'utf8');
+
                         response = await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
                             owner,
                             repo,
                             path: '.github/workflows/pr-title-check.yml',
                             message: 'Add pr-title-check workflow',
-                            const fs = require('fs');
-                            const prTitleCheckYml = fs.readFileSync('.github/workflows/templates/pr-title-check.yml', 'utf8');
                             content: Buffer.from(prTitleCheckYml).toString('base64'),
                             committer: {
                                 name: 'github-actions[bot]',
