@@ -24,7 +24,13 @@ jobs:
             github-token: ${{ steps.generate_token.outputs.token }}
             script: |
                 const owner = context.repo.owner;
-                const repos = (process.env.INPUT_REPOS || '').split(',').map(r => r.trim()).filter(Boolean);
+                const reposInput = ${{ github.event.inputs.repos }} || '';
+                if (!reposInput.trim()) {
+                    console.log('No repository names provided. Exiting.');
+                    return;
+                }
+                const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
+                console.log(`Input repos: ${repos.length === 1 ? repos[0] : repos.join(', ')}`);
 
                 // pr-title-check.yml content
                 const prTitleCheckYml = `
