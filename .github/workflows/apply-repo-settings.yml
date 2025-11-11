@@ -29,6 +29,7 @@ jobs:
           with:
             github-token: ${{ steps.generate_token.outputs.token }}
             script: |
+                let response;
                 const owner = context.repo.owner;
                 console.log(`owner: ${owner}`);
                 
@@ -45,7 +46,7 @@ jobs:
                 for (const repo of repos) {
                     console.log(`Applying settings to ${owner}/${repo}...`);
                     // 1. Update repository settings
-                    let response = await github.request('PATCH /repos/{owner}/{repo}', {
+                    response = await github.request('PATCH /repos/{owner}/{repo}', {
                         owner,
                         repo,
                         allow_squash_merge: true,
@@ -62,7 +63,7 @@ jobs:
                     let prTitleCheckExists = false;
                     let sha = '';
                     try {
-                        let response = await github.request('GET /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
+                        response = await github.request('GET /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
                             owner,
                             repo
                         });
@@ -98,12 +99,12 @@ jobs:
                         putParams.sha = sha;
                     }
 
-                    let response = await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', putParams);
+                    response = await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', putParams);
                     console.log(`${prTitleCheckExists ? 'Updated' : 'Created'} pr-title-check.yml in ${owner}/${repo}, Response status: ${response.status}`);
 
                     // 4. Branch protection rules for main and dev branches
                     for (const branch of ['main', 'dev']) {
-                        let response = await github.request('PUT /repos/{owner}/{repo}/branches/{branch}/protection', {
+                        response = await github.request('PUT /repos/{owner}/{repo}/branches/{branch}/protection', {
                             owner,
                             repo,
                             branch,
@@ -131,7 +132,7 @@ jobs:
 
                     // Function to create tag protection rule
                     async function createTagProtection(pattern) {
-                        let response = await github.request('POST /repos/{owner}/{repo}/tag_protection', {
+                        response = await github.request('POST /repos/{owner}/{repo}/tag_protection', {
                             owner,
                             repo,
                             pattern: pattern,
