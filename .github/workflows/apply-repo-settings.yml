@@ -25,8 +25,9 @@ jobs:
             script: |
                 const owner = context.repo.owner;
                 console.log(`owner: ${owner}`);
+                
                 const reposInput = `${{ github.event.inputs.repos }}` || '';
-                console.log(`reposInput: ${reposInput}`);
+                console.log(`repos Input: ${reposInput}`);
                 if (!reposInput.trim()) {
                     console.log('No repository names provided. Exiting.');
                     return;
@@ -68,16 +69,16 @@ jobs:
                         squash_merge_commit_title: 'PR_TITLE',
                         squash_merge_commit_message: 'PR_BODY'
                     });
-                    console.log(`repository settings Response status: ${response}`);
+                    console.log(`repository settings Response status: ${response.status}`);
 
-                    // 2. Enable merge queue
-                    response =await github.request('PUT /repos/{owner}/{repo}/merge-queue', {
-                        owner,
-                        repo,
-                        enabled: true
-                    });
+                    # // 2. Enable merge queue
+                    # response =await github.request('PUT /repos/{owner}/{repo}/merge-queue', {
+                    #     owner,
+                    #     repo,
+                    #     enabled: true
+                    # });
 
-                    console.log(`enable merge queue settings Response status: ${response}`);
+                    # console.log(`enable merge queue settings Response status: ${response}`);
 
 
                     // 3. Ensure pr-title-check.yml exists
