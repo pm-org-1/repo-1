@@ -131,19 +131,49 @@ jobs:
                     const githubAppId = 2271772; //1932357;
 
                     // Function to create tag protection rule
-                    async function createTagProtection(pattern) {
-                        response = await github.request('POST /repos/{owner}/{repo}/tags/protection', {
-                                    owner,
-                                    repo,
-                                    pattern: pattern,
-                                    enforcement: 'active', // Enable protection
-                                    allowed_actors: [
-                                        { type: 'App', id: githubAppId } // Allow GitHub App to bypass
-                                    ]
-                                });
+                    async function createTagRuleset(pattern) {
+                        try {
+                            const response = await github.request('POST /repos/{owner}/{repo}/rulesets', {
+                                owner,
+                                repo,
+                                name: 'Tag Protection',
+                                target: 'tag',
+                                enforcement: 'active',
+                                "conditions": {
+                                    "ref_name": {
+                                        "exclude": [],
+                                        "include": [
+                                            "refs/tags/*RC*",
+                                            "refs/tags/*V*"
+                                        ]
+                                    }
+                                },
+                                "rules": [
+                                    {
+                                        "type": "creation"
+                                    },
+                                    {
+                                        "type": "update"
+                                    },
+                                    {
+                                        "type": "deletion"
+                                    }
+                                ],
+                               "bypass_actors": [
+                                    {
+                                        "actor_id": githubAppId, // For GitHub App
+                                        "actor_type": "Integration",
+                                        "bypass_mode": "exempt"
+                                    }
+                                ]
+                            });
 
-                        console.log(`Tag protection rule for pattern: ${pattern}, Response status: ${response.status} `);
+                            console.log(`Tag ruleset created for pattern: ${pattern}, Status: ${response.status}`);
+                        } catch (error) {
+                            console.error(`Failed to create tag ruleset: ${error.message}`);
+                        }
                     }
+
 
                     // Apply rules for *RC* and *V*
                     await createTagProtection('*RC*');
