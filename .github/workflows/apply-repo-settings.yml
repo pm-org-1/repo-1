@@ -138,25 +138,29 @@ jobs:
                 // Start processing each repo
                 for (const repo of repos) {
                     console.log(`Applying settings to ${owner}/${repo}...`);
-                    // 1. Update repository settings
-                    response = await github.request('PATCH /repos/{owner}/{repo}', {
-                        owner,
-                        repo,
-                        allow_squash_merge: true,
-                        delete_branch_on_merge: true,
-                        allow_auto_merge: false,
-                        squash_merge_commit_title: 'PR_TITLE',
-                        squash_merge_commit_message: 'PR_BODY'
-                    });
-                    if (response.status === 404) {
-                        console.error(`⏭ Repo ${owner}/${repo}, Response status: ${response.status}`);
-                        continue;
+                    try {
+                        // 1. Update repository settings
+                        response = await github.request('PATCH /repos/{owner}/{repo}', {
+                            owner,
+                            repo,
+                            allow_squash_merge: true,
+                            delete_branch_on_merge: true,
+                            allow_auto_merge: false,
+                            squash_merge_commit_title: 'PR_TITLE',
+                            squash_merge_commit_message: 'PR_BODY'
+                        });
+                    } catch (error) {
+                        if (error.status === 404) {
+                            console.log(`⏭ Repo ${owner}/${repo}, Response status: ${response.status}`);
+                            continue;
+                        }
                     }
                     if (response.status !== 200) {
-                        console.error(`❌Failed to update repository settings for ${owner}/${repo}, Response status: ${response.status}`);
-                        continue;
+                            console.error(`❌Failed to update repository settings for ${owner}/${repo}, Response status: ${response.status}`);
+                            continue;
+                    } else {
+                        console.log(`✅Updated repository settings for ${owner}/${repo}, Response status: ${response.status}`);
                     }
-                    console.log(`✅Patch Repository settings Response status: ${response.status}`);
 
                     // 3. Ensure pr-title-check.yml exists and update with latest version
                     let prTitleCheckExists = false;
