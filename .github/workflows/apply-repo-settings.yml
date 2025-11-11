@@ -5,12 +5,13 @@ on:
             repos:
                 description: 'Comma-separated list of repo names (e.g. repo1, repo2)'
                 required: true
-            # Skip the creations if already exists
-            skip_if_exists:
-                description: 'Skip creation if already exists (true/false)'
+        
+            # Force recreation if the rule exists.
+            force_recreate:
+                description: 'Force apply the settings if the rule already exists'
                 required: false
                 type: boolean
-                default: true
+                default: false
 
 jobs:
     configure-repo:
@@ -36,6 +37,16 @@ jobs:
             github-token: ${{ steps.generate_token.outputs.token }}
             script: |
                 let response;
+                
+                // Branches to apply protection rules
+                const defaultBranches = ['main', 'dev'];
+                
+                // Define approving teams
+                const teamSlugs = ["ias-team-admin"];
+
+                // Check and create tag rule set. If already exists and force_recreate is true, then delete and recreate.
+                const forceRecreateInput = `${{ github.event.inputs.force_recreate }}`.toLowerCase();
+                const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1'; 
                 const owner = context.repo.owner;
                 console.log(`owner: ${owner}`);
                 
@@ -107,7 +118,7 @@ jobs:
                     console.log(`${prTitleCheckExists ? 'Updated' : 'Created'} pr-title-check.yml in ${owner}/${repo}, Response status: ${response.status}`);
 
                     // 4. Branch protection rules for main and dev branches
-                    for (const branch of ['main', 'dev']) {
+                    for (const branch of defaultBranches) {
                         response = await github.request('PUT /repos/{owner}/{repo}/branches/{branch}/protection', {
                             owner,
                             repo,
@@ -202,10 +213,7 @@ jobs:
                             throw error;
                         }
                     }
-
-                    // Check and create tag rule set. If already exists and skip_if_exists is true, skip creation.
-                    const skipIfExistsInput = `${{ github.event.inputs.skip_if_exists }}`.toLowerCase();
-                    const skipIfExists = skipIfExistsInput === 'true' || skipIfExistsInput === '1'; 
+                    
                     let tagRulesetExists = false;
                     try {
                         response = await github.request('GET /repos/{owner}/{repo}/rulesets', {
@@ -228,7 +236,7 @@ jobs:
                     if (!tagRulesetExists) {                        
                         await createTagRuleset();
                     }
-                    else if (tagRulesetExists && !skipIfExists) {
+                    else if (tagRulesetExists && forceRecreate) {
                         console.log(`Tag ruleset already exists in ${owner}/${repo}, deleting and recreating as per input.`);
                         await deleteTagRuleset();  
                         await createTagRuleset();
@@ -237,8 +245,7 @@ jobs:
                         console.log(`Tag ruleset already exists in ${owner}/${repo}, skipping creation as per input.`);
                     }
 
-                    // Define approving teams
-                    const teamSlugs = ["ias-team-admin"];
+                    
                     const approving_teams = [];
 
                     // Get team ID for all the teams from GitHub.
@@ -309,44 +316,64 @@ jobs:
                         }
                     ];
 
-                    
+                    // Create environments with protection rules
+                    async function createEnvironment(env) {
+                        await github.request('PUT /repos/{owner}/{repo}/environments/{environment_name}', {
+                            owner,
+                            repo,
+                            environment_name: env.name,
+                            reviewers: env.reviewers.map(r => (r)),
+                            deployment_branch_policy: env.deployment_branch_policy,
+                            wait_timer: 0,
+                            can_admins_bypass: env.allow_admin_bypass
+                        });
+                        console.log(`Recreated environment '${env.name}' with protection rules`);
+
+                        // Create environment deployment branch policies if any
+                        if (env.deployment_branch_policies) {
+                            for (const policy of env.deployment_branch_policies) {
+                                await github.request('POST /repos/{owner}/{repo}/environments/{environment_name}/deployment-branch-policies', {
+                                    owner,
+                                    repo,
+                                    environment_name: env.name,
+                                    type: policy.type,
+                                    name: policy.name
+                                });
+                                console.log(`Added deployment branch policy '${policy.name}' to environment '${env.name}'`);
+                            }
+                        }
+                    }
+
+                    // Delete existing environment
+                    async function deleteEnvironment(env) {
+                        await github.request('DELETE /repos/{owner}/{repo}/environments/{environment_name}', {
+                            owner,
+                            repo,
+                            environment_name: env.name
+                        });
+                        console.log(`Deleted environment '${env.name}'`);
+                    }
+
                     for (const env of environments) {
                         try {
                             // Check if environment exists
                             await github.request('GET /repos/{owner}/{repo}/environments/{environment_name}', {
-                            owner,
-                            repo,
-                            environment_name: env.name
+                                owner,
+                                repo,
+                                environment_name: env.name
                             });
                             console.log(`Environment '${env.name}' already exists`);
+
+                            if (forceRecreate) {
+                                console.log(`Force recreate is enabled. Deleting and recreating environment '${env.name}'`);
+                                await deleteEnvironment(env);
+                                await createEnvironment(env);
+                            }
                         } 
                         catch (error) {
                             if (error.status === 404) {
-                                // Create environment
-                                await github.request('PUT /repos/{owner}/{repo}/environments/{environment_name}', {
-                                    owner,
-                                    repo,
-                                    environment_name: env.name,
-                                    reviewers: env.reviewers.map(r => (r)),
-                                    deployment_branch_policy: env.deployment_branch_policy,
-                                    wait_timer: 0,
-                                    can_admins_bypass: env.allow_admin_bypass
-                                });
-                                console.log(`Environment '${env.name}' created with protection rules`);
-
-                                // Create environment deployment branch policies if any
-                                if (env.deployment_branch_policies) {
-                                    for (const policy of env.deployment_branch_policies) {
-                                        await github.request('POST /repos/{owner}/{repo}/environments/{environment_name}/deployment-branch-policies', {
-                                            owner,
-                                            repo,
-                                            environment_name: env.name,
-                                            type: policy.type,
-                                            name: policy.name
-                                        });
-                                        console.log(`Added deployment branch policy '${policy.name}' to environment '${env.name}'`);
-                                    }
-                                }
+                                console.log(`Environment '${env.name}' does not exist. Creating...`);
+                                await createEnvironment(env);
                             } else {
                                 throw error;
                             }
