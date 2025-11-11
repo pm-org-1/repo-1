@@ -50,7 +50,7 @@ jobs:
                         - name: Check PR title format
                           run: |
                             TITLE="${{ github.event.pull_request.title }}"
-                            if [[ ! "$TITLE" =~ ^IAS-[0-9]+: ]]; then
+                            if [[ ! "$TITLE" =~ ^(IAS|OPS|DEV)-[0-9]+:[[:space:]] ]]; then
                                 echo "❌ Pull request title must reference a Jira Work Item. For example: IAS-12650: <pr title>"
                                 exit 1
                             fi
