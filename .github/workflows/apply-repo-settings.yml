@@ -44,14 +44,14 @@ jobs:
                         types: [opened, edited, synchronize]
 
                 jobs:
-                    check-title:
+                    validate-pr-title:
                         runs-on: [self-hosted, bolt-ubuntu]
                         steps:
                         - name: Check PR title format
                           run: |
                             TITLE="${{ github.event.pull_request.title }}"
                             if [[ ! "$TITLE" =~ ^IAS-[0-9]+: ]]; then
-                                echo "❌ Pull request title must start with 'IAS-XXXX: ', for example: IAS-12650: <your title>"
+                                echo "❌ Pull request title must reference a Jira Work Item. For example: IAS-12650: <pr title>"
                                 exit 1
                             fi
 
@@ -124,7 +124,7 @@ jobs:
                             required_conversation_resolution: true,
                             required_status_checks: {
                                 strict: true,
-                                contexts: ['pr-title-check']
+                                contexts: ['validate-pr-title']
                             },
                             restrictions: null,
                             allow_force_pushes: false,
