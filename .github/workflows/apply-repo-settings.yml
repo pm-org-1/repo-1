@@ -131,7 +131,7 @@ jobs:
                     const githubAppId = 2271772; //1932357;
 
                     // Function to create tag protection rule
-                    async function createTagRuleset(pattern) {
+                    async function createTagRuleset() {
                         try {
                             const response = await github.request('POST /repos/{owner}/{repo}/rulesets', {
                                 owner,
@@ -174,10 +174,8 @@ jobs:
                         }
                     }
 
-
                     // Apply rules for *RC* and *V*
-                    await createTagProtection('*RC*');
-                    await createTagProtection('*V*');
+                    await createTagRuleset();
 
                     // Define environments and rules
                     const environments = [
