@@ -24,7 +24,11 @@ jobs:
             github-token: ${{ steps.generate_token.outputs.token }}
             script: |
                 const owner = context.repo.owner;
+                console.log(`owner: ${owner}`);
+                
+                
                 const reposInput = ${{ github.event.inputs.repos }} || '';
+                console.log(`reposInput: ${reposInput}`);
                 if (!reposInput.trim()) {
                     console.log('No repository names provided. Exiting.');
                     return;
