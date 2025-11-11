@@ -271,19 +271,29 @@ jobs:
                             name: 'dev',
                             reviewers: [], 
                             allow_admin_bypass: true,
-                            deployment_branch_policy: { protected_branches: true, custom_branch_policies: ['dev'] }
+                            deployment_branch_policy: { protected_branches: true, custom_branch_policies: false }
                         },
                         {
                             name: 'test',
                             reviewers: approving_teams,
                             allow_admin_bypass: true,
-                            deployment_branch_policy: { protected_branches: true, custom_branch_policies: ['main'] }
+                            deployment_branch_policy: { protected_branches: true, custom_branch_policies: false }
                         },
                         {
                             name: 'prod',
                             reviewers: approving_teams,
                             allow_admin_bypass: true,
-                            deployment_branch_policy: { protected_branches: true, custom_tag_policies: ['*RC*'] }
+                            deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                            deployment_branch_policies: [
+                                {
+                                    type: 'tag',
+                                    name: '*RC*'
+                                },
+                                {
+                                    type: 'tag',
+                                    name: '*V*'
+                                }
+                            ]
                         }
                     ];
 
@@ -311,6 +321,20 @@ jobs:
                                     can_admins_bypass: env.allow_admin_bypass
                                 });
                                 console.log(`Environment '${env.name}' created with protection rules`);
+
+                                // Create environment deployment branch policies if any
+                                if (env.deployment_branch_policies) {
+                                    for (const policy of env.deployment_branch_policies) {
+                                        await github.request('POST /repos/{owner}/{repo}/environments/{ }/deployment-branch-policies', {
+                                            owner,
+                                            repo,
+                                            environment_name: env.name,
+                                            type: policy.type,
+                                            name: policy.name
+                                        });
+                                        console.log(`Added deployment branch policy '${policy.name}' to environment '${env.name}'`);
+                                    }
+                                }
                             } else {
                                 throw error;
                             }
