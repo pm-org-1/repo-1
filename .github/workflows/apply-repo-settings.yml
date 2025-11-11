@@ -271,13 +271,25 @@ jobs:
                             name: 'dev',
                             reviewers: [], 
                             allow_admin_bypass: true,
-                            deployment_branch_policy: { protected_branches: true, custom_branch_policies: false }
+                            deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                            deployment_branch_policies: [
+                                {
+                                    type: 'branch',
+                                    name: 'dev'
+                                }
+                            ]
                         },
                         {
                             name: 'test',
                             reviewers: approving_teams,
                             allow_admin_bypass: true,
-                            deployment_branch_policy: { protected_branches: true, custom_branch_policies: false }
+                            deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                            deployment_branch_policies: [
+                                {
+                                    type: 'branch',
+                                    name: 'main'
+                                }
+                            ]
                         },
                         {
                             name: 'prod',
