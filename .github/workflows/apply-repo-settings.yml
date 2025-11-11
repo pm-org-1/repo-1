@@ -71,14 +71,7 @@ jobs:
                     });
                     console.log(`repository settings Response status: ${response.status}`);
 
-                    # // 2. Enable merge queue
-                    # response =await github.request('PUT /repos/{owner}/{repo}/merge-queue', {
-                    #     owner,
-                    #     repo,
-                    #     enabled: true
-                    # });
-
-                    # console.log(`enable merge queue settings Response status: ${response}`);
+                    
 
 
                     // 3. Ensure pr-title-check.yml exists
