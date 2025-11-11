@@ -136,7 +136,6 @@ jobs:
                             repo,
                             pattern: pattern,
                             allowed_actors: [
-                            { type: 'Role', id: 'admin' },   // Allow admins
                             { type: 'App', id: githubAppId } // Allow GitHub App
                             ],
                             create: true,
@@ -150,6 +149,57 @@ jobs:
                     await createTagProtection('*RC*');
                     await createTagProtection('*V*');
 
+                    // Define environments and rules
+                    const environments = [
+                        {
+                            name: 'dev',
+                            reviewers: [], 
+                            allow_admin_bypass: true,
+                            deployment_branch_policy: { protected_branches: true, custom_branch_policies: ['dev'] }
+                        },
+                        {
+                            name: 'test',
+                            reviewers: ['pm-org-1/ias-team-admin'],
+                            allow_admin_bypass: true,
+                            deployment_branch_policy: { protected_branches: true, custom_branch_policies: ['main'] }
+                        },
+                        {
+                            name: 'prod',
+                            reviewers: ['pm-org-1/ias-team-admin'],
+                            allow_admin_bypass: true,
+                            deployment_branch_policy: { protected_branches: true, custom_tag_policies: ['*RC*'] }
+                        }
+                    ];
+
+                    
+                    for (const env of environments) {
+                        try {
+                            // Check if environment exists
+                            await github.request('GET /repos/{owner}/{repo}/environments/{environment_name}', {
+                            owner,
+                            repo,
+                            environment_name: env.name
+                            });
+                            console.log(`Environment '${env.name}' already exists`);
+                        } 
+                        catch (error) {
+                            if (error.status === 404) {
+                                // Create environment
+                                await github.request('PUT /repos/{owner}/{repo}/environments/{environment_name}', {
+                                    owner,
+                                    repo,
+                                    environment_name: env.name,
+                                    reviewers: env.reviewers.map(r => ({ type: 'User', id: r })),
+                                    deployment_branch_policy: env.deployment_branch_policy,
+                                    wait_timer: 0,
+                                    can_admins_bypass: env.allow_admin_bypass
+                                });
+                                console.log(`Environment '${env.name}' created with protection rules`);
+                            } else {
+                                throw error;
+                            }
+                        }
+                    }
 
                     console.log(`Settings applied to ${owner}/${repo}`);
                 }
