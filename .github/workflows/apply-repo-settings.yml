@@ -137,6 +137,7 @@ jobs:
                 
                 // Start processing each repo
                 for (const repo of repos) {
+                    console.log(`--------------------------------------------------------`);
                     console.log(`Applying settings to ${owner}/${repo}...`);
                     try {
                         // 1. Update repository settings
@@ -151,7 +152,7 @@ jobs:
                         });
                     } catch (error) {
                         if (error.status === 404) {
-                            console.log(`⏭ Repo ${owner}/${repo}, Response status: ${error.status}`);
+                            console.log(`🚫Skipping Repo ${owner}/${repo}, Response status: ${error.status}`);
                             continue;
                         }
                     }
