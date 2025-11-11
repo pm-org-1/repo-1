@@ -54,46 +54,52 @@ jobs:
                         squash_merge_commit_title: 'PR_TITLE',
                         squash_merge_commit_message: 'PR_BODY'
                     });
-                    console.log(`repository settings Response status: ${response.status}`);
+                    console.log(`Patch Repository settings Response status: ${response.status}`);
 
 
 
-                    // 3. Ensure pr-title-check.yml exists
+                    // 3. Ensure pr-title-check.yml exists and update with latest version
                     let prTitleCheckExists = false;
+                    let sha = '';
                     try {
-                        let response =await github.request('GET /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
+                        let response = await github.request('GET /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
                             owner,
                             repo
                         });
-                        console.log(`check pr-title-check.yml existence Response status: ${response.status}`);
+                        console.log(`Checking pr-title-check.yml existence Response status: ${response.status}`);
                         prTitleCheckExists = true;
+                        sha = response.data.sha;
                     } catch (e) {
                         prTitleCheckExists = false;
                     }
 
-                    if (!prTitleCheckExists) {
-                        // Create pr-title-check.yml in the repo
-                        console.log(`Workspace path: ${process.env.GITHUB_WORKSPACE}`);
-                        const prTitleCheckYml = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/workflows/templates/pr-title-check.yml`, 'utf8');
+                    // Read latest pr-title-check.yml from template
+                    console.log(`Workspace path: ${process.env.GITHUB_WORKSPACE}`);
+                    const prTitleCheckYml = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/workflows/templates/pr-title-check.yml`, 'utf8');
 
-                        let response = await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
-                            owner,
-                            repo,
-                            path: '.github/workflows/pr-title-check.yml',
-                            message: 'Add pr-title-check workflow',
-                            content: Buffer.from(prTitleCheckYml).toString('base64'),
-                            committer: {
-                                name: 'github-actions[bot]',
-                                email: 'praveena.m@pfizer.com'
-                            },
-                            author: {
-                                name: 'github-actions[bot]',
-                                email: 'praveena.m@pfizer.com'
-                            },
-                            signoff: true // -S
-                        });
-                        console.log(`Created pr-title-check.yml in ${owner}/${repo}, Response status: ${response.status}`);
+                    // Create or update pr-title-check.yml in the repo
+                    let putParams = {
+                        owner,
+                        repo,
+                        path: '.github/workflows/pr-title-check.yml',
+                        message: prTitleCheckExists ? 'Update pr-title-check workflow' : 'Add pr-title-check workflow',
+                        content: Buffer.from(prTitleCheckYml).toString('base64'),
+                        committer: {
+                            name: 'github-actions[bot]',
+                            email: 'praveena.m@pfizer.com'
+                        },
+                        author: {
+                            name: 'github-actions[bot]',
+                            email: 'praveena.m@pfizer.com'
+                        },
+                        signoff: true // -S
+                    };
+                    if (prTitleCheckExists && sha) {
+                        putParams.sha = sha;
                     }
+
+                    let response = await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', putParams);
+                    console.log(`${prTitleCheckExists ? 'Updated' : 'Created'} pr-title-check.yml in ${owner}/${repo}, Response status: ${response.status}`);
 
                     // 4. Branch protection rules for main and dev branches
                     for (const branch of ['main', 'dev']) {
@@ -102,7 +108,7 @@ jobs:
                             repo,
                             branch,
                             required_linear_history: true,
-                            enforce_admins: true,
+                            enforce_admins: false,
                             required_pull_request_reviews: {
                                 require_code_owner_reviews: true,
                                 require_last_push_approval: true
@@ -118,6 +124,32 @@ jobs:
                         });
                         console.log(`Branch protection applied to ${owner}/${repo} on branch ${branch}, Response status: ${response.status}`);
                     }
+
+                    
+                    // Replace with your GitHub App ID
+                    const githubAppId = 2271772; //1932357;
+
+                    // Function to create tag protection rule
+                    async function createTagProtection(pattern) {
+                        let response = await github.request('POST /repos/{owner}/{repo}/tag_protection', {
+                            owner,
+                            repo,
+                            pattern: pattern,
+                            allowed_actors: [
+                            { type: 'Role', id: 'admin' },   // Allow admins
+                            { type: 'App', id: githubAppId } // Allow GitHub App
+                            ],
+                            create: true,
+                            update: true,
+                            delete: true
+                        });
+                        console.log(`Tag protection rule for pattern: ${pattern}, Response status: ${response.status} `);
+                    }
+
+                    // Apply rules for *RC* and *V*
+                    await createTagProtection('*RC*');
+                    await createTagProtection('*V*');
+
 
                     console.log(`Settings applied to ${owner}/${repo}`);
                 }
