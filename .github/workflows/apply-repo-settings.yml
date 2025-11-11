@@ -168,7 +168,7 @@ jobs:
                                 ]
                             });
 
-                            console.log(`Tag ruleset created for pattern: ${pattern}, Status: ${response.status}`);
+                            console.log(`Tag ruleset created, Response status: ${response.status}`);
                         } catch (error) {
                             console.error(`Failed to create tag ruleset: ${error.message}`);
                         }
@@ -176,6 +176,34 @@ jobs:
 
                     // Apply rules for *RC* and *V*
                     await createTagRuleset();
+
+                    // Define approving teams
+                    const teamSlugs = ["ias-team-admin"];
+                    const approving_teams = [];
+
+                    // Get team ID for all the teams from GitHub.
+                    async function getTeamId(teamSlug) {
+                        try {
+                            const response = await github.request('GET /orgs/{org}/teams/{team_slug}', {
+                                org: owner,
+                                team_slug: teamSlug
+                            });
+                            return response.data.id;
+                        } catch (error) {
+                            console.error(`Failed to get team ID for ${teamSlug}: ${error.message}`);
+                            return null;
+                        }
+                    }
+
+                    // Fetch team IDs and update teams array
+                    for (const teamSlug of teamSlugs) {
+                        const id = await getTeamId(teamSlug);
+                        if (id) {
+                            approving_teams.push({"type": "Team", "id": id });
+                        }
+                    }
+
+                    console.log(`Approving teams: ${JSON.stringify(approving_teams)}`);
 
                     // Define environments and rules
                     const environments = [
@@ -187,13 +215,13 @@ jobs:
                         },
                         {
                             name: 'test',
-                            reviewers: ['pm-org-1/ias-team-admin'],
+                            reviewers: approving_teams,
                             allow_admin_bypass: true,
                             deployment_branch_policy: { protected_branches: true, custom_branch_policies: ['main'] }
                         },
                         {
                             name: 'prod',
-                            reviewers: ['pm-org-1/ias-team-admin'],
+                            reviewers: approving_teams,
                             allow_admin_bypass: true,
                             deployment_branch_policy: { protected_branches: true, custom_tag_policies: ['*RC*'] }
                         }
@@ -217,7 +245,7 @@ jobs:
                                     owner,
                                     repo,
                                     environment_name: env.name,
-                                    reviewers: env.reviewers.map(r => ({ type: 'User', id: r })),
+                                    reviewers: env.reviewers.map(r => (r)),
                                     deployment_branch_policy: env.deployment_branch_policy,
                                     wait_timer: 0,
                                     can_admins_bypass: env.allow_admin_bypass
