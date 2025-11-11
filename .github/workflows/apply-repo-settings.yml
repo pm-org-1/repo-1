@@ -36,8 +36,26 @@ jobs:
           with:
             github-token: ${{ steps.generate_token.outputs.token }}
             script: |
-                let response;
+                const owner = context.repo.owner;
+                console.log(`Owner: ${owner}`);
+
+                const reposInput = `${{ github.event.inputs.repos }}` || '';
+                console.log(`Repos Input: ${reposInput}`);
                 
+                if (!reposInput.trim()) {
+                    console.log('No repository names provided. Exiting.');
+                    return;
+                }
+                const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
+
+                // If the rule already exists and force_recreate is true, then delete and recreate.
+                const forceRecreateInput = `${{ github.event.inputs.force_recreate }}`.toLowerCase();
+                const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1'; 
+                console.log(`Force recreate is set : ${forceRecreate}`);
+
+                let response;
+
+                // Configurations section.                
                 // Branches to apply protection rules
                 const defaultBranches = ['main', 'dev'];
                 console.log(`Default branches for protection: ${defaultBranches.join(', ')}`);
@@ -47,7 +65,10 @@ jobs:
                 console.log(`Approving teams slugs: ${teamSlugs.join(', ')}`);
                 const approving_teams = [];
 
-                // Get team ID for all the teams from GitHub.
+                // Start processing each repo
+                let response;
+
+                // Get team ID by team slug from GitHub.
                 async function getTeamId(teamSlug) {
                     try {
                         const response = await github.request('GET /orgs/{org}/teams/{team_slug}', {
@@ -61,7 +82,7 @@ jobs:
                     }
                 }
 
-                // Fetch team IDs and update teams array
+                // Fetch team IDs and add to approving_teams array
                 for (const teamSlug of teamSlugs) {
                     const id = await getTeamId(teamSlug);
                     if (id) {
@@ -113,24 +134,7 @@ jobs:
                             }
                         ]
                     }
-                ];
-
-                // Check and create tag rule set. If already exists and force_recreate is true, then delete and recreate.
-                const forceRecreateInput = `${{ github.event.inputs.force_recreate }}`.toLowerCase();
-                const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1'; 
-                console.log(`Force recreate is set : ${forceRecreate}`);
-
-                const owner = context.repo.owner;
-                console.log(`Owner: ${owner}`);
-                
-                const reposInput = `${{ github.event.inputs.repos }}` || '';
-                console.log(`Repos Input: ${reposInput}`);
-                
-                if (!reposInput.trim()) {
-                    console.log('No repository names provided. Exiting.');
-                    return;
-                }
-                const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
+                ];                
 
                 const fs = require('fs');
                 for (const repo of repos) {
