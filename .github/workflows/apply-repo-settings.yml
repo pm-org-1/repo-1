@@ -5,6 +5,11 @@ on:
             repos:
                 description: 'Comma-separated list of repo names (e.g. repo1, repo2)'
                 required: true
+            # Skip the creations if already exists
+            skip_if_exists:
+                description: 'Skip creation if already exists (true/false)'
+                required: false
+                default: 'true'
 
 jobs:
     configure-repo:
@@ -174,8 +179,61 @@ jobs:
                         }
                     }
 
+                     async function deleteTagRuleset() {
+                        try {
+                            response = await github.request('GET /repos/{owner}/{repo}/rulesets', {
+                                owner,
+                                repo
+                            });
+                            const rulesets = response.data;
+                            for (const ruleset of rulesets) {
+                                if (ruleset.target === 'tag' && ruleset.name === 'Tag Protection') {
+                                    await github.request('DELETE /repos/{owner}/{repo}/rulesets/{ruleset_id}', {
+                                        owner,
+                                        repo,
+                                        ruleset_id: ruleset.id
+                                    });
+                                    console.log(`Deleted existing tag ruleset with ID: ${ruleset.id}`);
+                                    break;
+                                }
+                            }
+                        } catch (error) {
+                            console.error(`Failed to delete existing tag ruleset: ${error.message}`);
+                        }
+                    }
+
+                    // Check and create tag rule set. If already exists and skip_if_exists is true, skip creation.
+                    const skipIfExistsInput = `${{ github.event.inputs.skip_if_exists }}`.toLowerCase();
+                    const skipIfExists = skipIfExistsInput === 'true' || skipIfExistsInput === '1'; 
+                    let tagRulesetExists = false;
+                    try {
+                        response = await github.request('GET /repos/{owner}/{repo}/rulesets', {
+                            owner,
+                            repo
+                        });
+                        const rulesets = response.data;
+                        for (const ruleset of rulesets) {
+                            if (ruleset.target === 'tag' && ruleset.name === 'Tag Protection') {
+                                tagRulesetExists = true;
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Failed to fetch rulesets: ${error.message}`);
+                    }
+
                     // Apply rules for *RC* and *V*
-                    await createTagRuleset();
+                    if (!tagRulesetExists) {                        
+                        await createTagRuleset();
+                    }
+                    else if (tagRulesetExists && !skipIfExists) {
+                        console.log(`Tag ruleset already exists in ${owner}/${repo}, deleting and recreating as per input.`);
+                        await deleteTagRuleset();  
+                        await createTagRuleset();
+                    }
+                    else {
+                        console.log(`Tag ruleset already exists in ${owner}/${repo}, skipping creation as per input.`);
+                    }
 
                     // Define approving teams
                     const teamSlugs = ["ias-team-admin"];
