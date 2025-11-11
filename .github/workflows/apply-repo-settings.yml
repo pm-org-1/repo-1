@@ -120,7 +120,7 @@ jobs:
                         squash_merge_commit_title: 'PR_TITLE',
                         squash_merge_commit_message: 'PR_BODY'
                     });
-                    if response.status !== 200) {
+                    if (response.status !== 200) {
                         console.error(`❌Failed to update repository settings for ${owner}/${repo}, Response status: ${response.status}`);
                         continue;
                     }
