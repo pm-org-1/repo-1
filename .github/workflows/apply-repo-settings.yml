@@ -77,6 +77,7 @@ jobs:
                         sha = response.data.sha;
                     } catch (e) {
                         prTitleCheckExists = false;
+                        throw e;
                     }
 
                     // Read latest pr-title-check.yml from template
@@ -176,6 +177,7 @@ jobs:
                             console.log(`Tag ruleset created, Response status: ${response.status}`);
                         } catch (error) {
                             console.error(`Failed to create tag ruleset: ${error.message}`);
+                            throw error;
                         }
                     }
 
@@ -199,6 +201,7 @@ jobs:
                             }
                         } catch (error) {
                             console.error(`Failed to delete existing tag ruleset: ${error.message}`);
+                            throw error;
                         }
                     }
 
@@ -220,6 +223,7 @@ jobs:
                         }
                     } catch (error) {
                         console.error(`Failed to fetch rulesets: ${error.message}`);
+                        throw error;
                     }
 
                     // Apply rules for *RC* and *V*
@@ -249,7 +253,7 @@ jobs:
                             return response.data.id;
                         } catch (error) {
                             console.error(`Failed to get team ID for ${teamSlug}: ${error.message}`);
-                            return null;
+                            throw error;
                         }
                     }
 
