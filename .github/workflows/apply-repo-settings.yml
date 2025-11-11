@@ -16,7 +16,7 @@ jobs:
           with:
             app-id: ${{ secrets.APP_ID }}
             private-key: ${{ secrets.APP_PEM }}
-            owner: praveena-617 #pfizer-analytics
+            owner: pm-org-1 #pfizer-analytics
 
         - name: Configure Repository Settings
           uses: actions/github-script@v7
