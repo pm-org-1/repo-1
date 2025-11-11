@@ -46,6 +46,50 @@ jobs:
                 const teamSlugs = ["ias-team-admin"];
                 console.log(`Approving teams slugs: ${teamSlugs.join(', ')}`);
 
+                // Define environments and rules
+                const environments = [
+                    {
+                        name: 'dev',
+                        reviewers: [], 
+                        allow_admin_bypass: true,
+                        deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                        deployment_branch_policies: [
+                            {
+                                type: 'branch',
+                                name: 'dev'
+                            }
+                        ]
+                    },
+                    {
+                        name: 'test',
+                        reviewers: approving_teams,
+                        allow_admin_bypass: true,
+                        deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                        deployment_branch_policies: [
+                            {
+                                type: 'branch',
+                                name: 'main'
+                            }
+                        ]
+                    },
+                    {
+                        name: 'prod',
+                        reviewers: approving_teams,
+                        allow_admin_bypass: true,
+                        deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                        deployment_branch_policies: [
+                            {
+                                type: 'tag',
+                                name: '*RC*'
+                            },
+                            {
+                                type: 'tag',
+                                name: '*V*'
+                            }
+                        ]
+                    }
+                ];
+
                 // Check and create tag rule set. If already exists and force_recreate is true, then delete and recreate.
                 const forceRecreateInput = `${{ github.event.inputs.force_recreate }}`.toLowerCase();
                 const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1'; 
@@ -76,7 +120,11 @@ jobs:
                         squash_merge_commit_title: 'PR_TITLE',
                         squash_merge_commit_message: 'PR_BODY'
                     });
-                    console.log(`Patch Repository settings Response status: ${response.status}`);
+                    if response.status !== 200) {
+                        console.error(`❌Failed to update repository settings for ${owner}/${repo}, Response status: ${response.status}`);
+                        continue;
+                    }
+                    console.log(`✅Patch Repository settings Response status: ${response.status}`);
 
                     // 3. Ensure pr-title-check.yml exists and update with latest version
                     let prTitleCheckExists = false;
@@ -119,10 +167,48 @@ jobs:
                     }
 
                     response = await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', putParams);
-                    console.log(`${prTitleCheckExists ? 'Updated' : 'Created'} pr-title-check.yml in ${owner}/${repo}, Response status: ${response.status}`);
+                    console.log(`${prTitleCheckExists ? '✅Updated' : '✅Created'} pr-title-check.yml in ${owner}/${repo}, Response status: ${response.status}`);
 
-                    // 4. Branch protection rules for main and dev branches
+                    // 4. Branch protection rules for protected branches
                     for (const branch of defaultBranches) {
+                        // Check if branch exists
+                        try {
+                            response = await github.request('GET /repos/{owner}/{repo}/branches/{branch}', {
+                                owner,
+                                repo,
+                                branch
+                            });
+                            console.log(`Branch ${branch} exists in ${owner}/${repo}, Response status: ${response.status}`);
+                        } catch (error) {
+                            console.log(`Branch ${branch} does not exist in ${owner}/${repo}, skipping branch protection.`);
+                            
+                            // create the branch from main branch if it does not exist.
+                            if (branch !== 'main') {
+                                try {
+                                    // Get main branch reference
+                                    const mainRefResponse = await github.request('GET /repos/{owner}/{repo}/git/ref/heads/main', {
+                                        owner,
+                                        repo
+                                    });
+                                    const mainSha = mainRefResponse.data.object.sha;
+
+                                    // Create new branch from main
+                                    response = await github.request('POST /repos/{owner}/{repo}/git/refs', {
+                                        owner,
+                                        repo,
+                                        ref: `refs/heads/${branch}`,
+                                        sha: mainSha
+                                    });
+                                    console.log(`✅Created branch ${branch} from main in ${owner}/${repo}, Response status: ${response.status}`);
+                                } catch (createError) {
+                                    console.error(`❌Failed to create branch ${branch} in ${owner}/${repo}: ${createError.message}`);
+                                    continue; // Skip to next branch
+                                }
+                            } else {
+                                continue; // Skip to next branch
+                            }
+                            
+                        }
                         response = await github.request('PUT /repos/{owner}/{repo}/branches/{branch}/protection', {
                             owner,
                             repo,
@@ -142,9 +228,8 @@ jobs:
                             allow_force_pushes: false,
                             required_signatures: true
                         });
-                        console.log(`Branch protection applied to ${owner}/${repo} on branch ${branch}, Response status: ${response.status}`);
+                        console.log(`✅Branch protection applied to ${owner}/${repo} on branch ${branch}, Response status: ${response.status}`);
                     }
-
                     
                     // Replace with your GitHub App ID
                     const githubAppId = 2271772; //1932357;
@@ -187,7 +272,7 @@ jobs:
                                 ]
                             });
 
-                            console.log(`Tag ruleset created, Response status: ${response.status}`);
+                            console.log(`✅Tag ruleset created, Response status: ${response.status}`);
                         } catch (error) {
                             console.error(`Failed to create tag ruleset: ${error.message}`);
                             throw error;
@@ -249,7 +334,6 @@ jobs:
                         console.log(`Tag ruleset already exists in ${owner}/${repo}, skipping creation as per input.`);
                     }
 
-                    
                     const approving_teams = [];
 
                     // Get team ID for all the teams from GitHub.
@@ -274,51 +358,7 @@ jobs:
                         }
                     }
 
-                    console.log(`Approving teams: ${JSON.stringify(approving_teams)}`);
-
-                    // Define environments and rules
-                    const environments = [
-                        {
-                            name: 'dev',
-                            reviewers: [], 
-                            allow_admin_bypass: true,
-                            deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-                            deployment_branch_policies: [
-                                {
-                                    type: 'branch',
-                                    name: 'dev'
-                                }
-                            ]
-                        },
-                        {
-                            name: 'test',
-                            reviewers: approving_teams,
-                            allow_admin_bypass: true,
-                            deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-                            deployment_branch_policies: [
-                                {
-                                    type: 'branch',
-                                    name: 'main'
-                                }
-                            ]
-                        },
-                        {
-                            name: 'prod',
-                            reviewers: approving_teams,
-                            allow_admin_bypass: true,
-                            deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-                            deployment_branch_policies: [
-                                {
-                                    type: 'tag',
-                                    name: '*RC*'
-                                },
-                                {
-                                    type: 'tag',
-                                    name: '*V*'
-                                }
-                            ]
-                        }
-                    ];
+                    console.log(`Approving teams: ${JSON.stringify(approving_teams)}`);                    
 
                     // Create environments with protection rules
                     async function createEnvironment(env) {
@@ -331,7 +371,7 @@ jobs:
                             wait_timer: 0,
                             can_admins_bypass: env.allow_admin_bypass
                         });
-                        console.log(`Recreated environment '${env.name}' with protection rules`);
+                        console.log(`✅Recreated environment '${env.name}' with protection rules`);
 
                         // Create environment deployment branch policies if any
                         if (env.deployment_branch_policies) {
@@ -343,7 +383,7 @@ jobs:
                                     type: policy.type,
                                     name: policy.name
                                 });
-                                console.log(`Added deployment branch policy '${policy.name}' to environment '${env.name}'`);
+                                console.log(`✅Added deployment branch policy '${policy.name}' to environment '${env.name}'`);
                             }
                         }
                     }
@@ -355,7 +395,7 @@ jobs:
                             repo,
                             environment_name: env.name
                         });
-                        console.log(`Deleted environment '${env.name}'`);
+                        console.log(`✅Deleted environment '${env.name}'`);
                     }
 
                     for (const env of environments) {
@@ -379,11 +419,12 @@ jobs:
                                 console.log(`Environment '${env.name}' does not exist. Creating...`);
                                 await createEnvironment(env);
                             } else {
+                                console.error(`❌Failed to process environment '${env.name}': ${error.message}`);
                                 throw error;
                             }
                         }
                     }
 
-                    console.log(`Completed applying settings to ${owner}/${repo}`);
+                    console.log(`✅Completed applying settings to ${owner}/${repo}`);
                     console.log(`--------------------------------------------------------`);
                 }
