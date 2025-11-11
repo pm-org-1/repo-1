@@ -40,24 +40,28 @@ jobs:
                 
                 // Branches to apply protection rules
                 const defaultBranches = ['main', 'dev'];
+                console.log(`Default branches for protection: ${defaultBranches.join(', ')}`);
                 
                 // Define approving teams
                 const teamSlugs = ["ias-team-admin"];
+                console.log(`Approving teams slugs: ${teamSlugs.join(', ')}`);
 
                 // Check and create tag rule set. If already exists and force_recreate is true, then delete and recreate.
                 const forceRecreateInput = `${{ github.event.inputs.force_recreate }}`.toLowerCase();
                 const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1'; 
+                console.log(`Force recreate is set : ${forceRecreate}`);
+
                 const owner = context.repo.owner;
-                console.log(`owner: ${owner}`);
+                console.log(`Owner: ${owner}`);
                 
                 const reposInput = `${{ github.event.inputs.repos }}` || '';
-                console.log(`repos Input: ${reposInput}`);
+                console.log(`Repos Input: ${reposInput}`);
+                
                 if (!reposInput.trim()) {
                     console.log('No repository names provided. Exiting.');
                     return;
                 }
                 const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
-                console.log(`Input repos: ${repos.length === 1 ? repos[0] : repos.join(', ')}`);
 
                 const fs = require('fs');
                 for (const repo of repos) {
@@ -380,5 +384,6 @@ jobs:
                         }
                     }
 
-                    console.log(`Settings applied to ${owner}/${repo}`);
+                    console.log(`Completed applying settings to ${owner}/${repo}`);
+                    console.log(`--------------------------------------------------------`);
                 }
