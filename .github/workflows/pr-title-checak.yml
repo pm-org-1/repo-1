@@ -3,10 +3,13 @@ name: Validate PR Title
 on:
   pull_request:
     types: [opened, edited, synchronize]
+    branches:
+      - main
+      - dev
 
 jobs:
   check-title:
-    runs-on: [self-hosted, bolt-ubuntu]
+    runs-on: ubuntu-latest
     steps:
       - name: Check PR title format
         run: |
