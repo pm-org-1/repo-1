@@ -151,7 +151,7 @@ jobs:
                         });
                     } catch (error) {
                         if (error.status === 404) {
-                            console.log(`⏭ Repo ${owner}/${repo}, Response status: ${response.status}`);
+                            console.log(`⏭ Repo ${owner}/${repo}, Response status: ${error.status}`);
                             continue;
                         }
                     }
