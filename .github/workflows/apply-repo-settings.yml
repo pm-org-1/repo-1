@@ -132,17 +132,16 @@ jobs:
 
                     // Function to create tag protection rule
                     async function createTagProtection(pattern) {
-                        response = await github.request('POST /repos/{owner}/{repo}/tag_protection', {
-                            owner,
-                            repo,
-                            pattern: pattern,
-                            allowed_actors: [
-                            { type: 'App', id: githubAppId } // Allow GitHub App
-                            ],
-                            create: true,
-                            update: true,
-                            delete: true
-                        });
+                        response = await github.request('POST /repos/{owner}/{repo}/tags/protection', {
+                                    owner,
+                                    repo,
+                                    pattern: pattern,
+                                    enforcement: 'active', // Enable protection
+                                    allowed_actors: [
+                                        { type: 'App', id: githubAppId } // Allow GitHub App to bypass
+                                    ]
+                                });
+
                         console.log(`Tag protection rule for pattern: ${pattern}, Response status: ${response.status} `);
                     }
 
