@@ -49,8 +49,9 @@ jobs:
                 `;
 
                 for (const repo of repos) {
+                    console.log(`Applying settings to ${owner}/${repo}...`);
                     // 1. Update repository settings
-                    await github.request('PATCH /repos/{owner}/{repo}', {
+                    response = await github.request('PATCH /repos/{owner}/{repo}', {
                         owner,
                         repo,
                         allow_squash_merge: true,
@@ -59,21 +60,26 @@ jobs:
                         squash_merge_commit_title: 'PR_TITLE',
                         squash_merge_commit_message: 'PR_BODY'
                     });
+                    console.log(`repository settings Response status: ${response}`);
 
                     // 2. Enable merge queue
-                    await github.request('PUT /repos/{owner}/{repo}/merge-queue', {
+                    response =await github.request('PUT /repos/{owner}/{repo}/merge-queue', {
                         owner,
                         repo,
                         enabled: true
                     });
 
+                    console.log(`enable merge queue settings Response status: ${response}`);
+
+
                     // 3. Ensure pr-title-check.yml exists
                     let prTitleCheckExists = false;
                     try {
-                        await github.request('GET /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
+                        response =await github.request('GET /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
                             owner,
                             repo
                         });
+                        console.log(`check pr-title-check.yml existence Response status: ${response}`);
                         prTitleCheckExists = true;
                     } catch (e) {
                         prTitleCheckExists = false;
@@ -81,7 +87,7 @@ jobs:
 
                     if (!prTitleCheckExists) {
                         // Create pr-title-check.yml in the repo
-                        await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
+                        response = await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
                             owner,
                             repo,
                             path: '.github/workflows/pr-title-check.yml',
@@ -98,11 +104,12 @@ jobs:
                             sha: undefined,
                             signoff: true // -S
                         });
+                        console.log(`Created pr-title-check.yml in ${owner}/${repo}, Response status: ${response}`);
                     }
 
                     // 4. Branch protection rules for main and dev branches
                     for (const branch of ['main', 'dev']) {
-                        await github.request('PUT /repos/{owner}/{repo}/branches/{branch}/protection', {
+                        response = await github.request('PUT /repos/{owner}/{repo}/branches/{branch}/protection', {
                             owner,
                             repo,
                             branch,
@@ -121,6 +128,7 @@ jobs:
                             allow_force_pushes: false,
                             required_signatures: true
                         });
+                        console.log(`Branch protection applied to ${owner}/${repo} on branch ${branch}, Response status: ${response}`);
                     }
 
                     console.log(`Settings applied to ${owner}/${repo}`);
