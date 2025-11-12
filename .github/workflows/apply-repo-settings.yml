@@ -48,80 +48,53 @@ jobs:
                 }
                 const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
 
-                // If the rule already exists and force_recreate is true, then delete and recreate.
                 const forceRecreateInput = `${{ github.event.inputs.force_recreate }}`.toLowerCase();
-                const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1'; 
-                console.log(`Force recreate is set : ${forceRecreate}`);
+                const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1';
+                core.info(`Force recreate: ${forceRecreate}`);
 
-                // Configurations section.                
-                // Branches to apply protection rules
                 const defaultBranches = ['main', 'dev'];
-                console.log(`Default branches for protection: ${defaultBranches.join(', ')}`);
-                
-                // Define approving teams
-                const teamSlugs = ["ias-team-admin"];
-                console.log(`Approving teams slugs: ${teamSlugs.join(', ')}`);
+                const teamSlugs = ['ias-team-admin'];
                 const approving_teams = [];
+                const githubAppId = 2271772;
+                const atlassianTeamServiceAccount = 'atlassian-team-service-account';
 
-                // Replace with your GitHub App ID
-                const githubAppId = 2271772; //1932357;
-
-                // Atlassian team service account.
-                const atlassianTeamServiceAccount = "atlassian-team-service-account";
-
-                // Variable to hold API response
-                let response;
                 const fs = require('fs');
 
-                // Get team ID by team slug from GitHub.
+                // Get the team ID from slug
                 async function getTeamId(teamSlug) {
                     try {
-                        const response = await github.request('GET /orgs/{org}/teams/{team_slug}', {
+                        const { data } = await github.rest.teams.getByName({
                             org: owner,
                             team_slug: teamSlug
                         });
-                        return response.data.id;
-                    } catch (error) {
-                        console.error(`Failed to get team ID for ${teamSlug}: ${error.message}`);
-                        process.exit(1);
+                        return data.id;
+                    } catch (e) {
+                        core.setFailed(`Failed to get team ID for ${teamSlug}: ${e.message}`);
+                        throw e;
                     }
                 }
 
-                // Fetch team IDs and add to approving_teams array
-                for (const teamSlug of teamSlugs) {
-                    const id = await getTeamId(teamSlug);
-                    if (id) {
-                        approving_teams.push({"type": "Team", "id": id });
-                    }
+                // Fetch approving team IDs
+                for (const slug of teamSlugs) {
+                    const id = await getTeamId(slug);
+                    if (id) approving_teams.push({ type: 'Team', id });
                 }
+                core.info(`Approving teams: ${JSON.stringify(approving_teams)}`);
 
-                console.log(`Approving teams: ${JSON.stringify(approving_teams)}`);
-
-                // Define environments and rules
                 const environments = [
                     {
                         name: 'dev',
-                        reviewers: [], 
+                        reviewers: [],
                         allow_admin_bypass: true,
                         deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-                        deployment_branch_policies: [
-                            {
-                                type: 'branch',
-                                name: 'dev'
-                            }
-                        ]
+                        deployment_branch_policies: [{ type: 'branch', name: 'dev' }]
                     },
                     {
                         name: 'test',
                         reviewers: approving_teams,
                         allow_admin_bypass: true,
                         deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-                        deployment_branch_policies: [
-                            {
-                                type: 'branch',
-                                name: 'main'
-                            }
-                        ]
+                        deployment_branch_policies: [{ type: 'branch', name: 'main' }]
                     },
                     {
                         name: 'prod',
@@ -129,26 +102,133 @@ jobs:
                         allow_admin_bypass: true,
                         deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
                         deployment_branch_policies: [
-                            {
-                                type: 'tag',
-                                name: '*RC*'
-                            },
-                            {
-                                type: 'tag',
-                                name: '*V*'
-                            }
+                            { type: 'tag', name: '*RC*' },
+                            { type: 'tag', name: '*V*' }
                         ]
                     }
                 ];
-                
-                // Start processing each repo
-                for (const repo of repos) {
-                    console.log(`--------------------------------------------------------`);
-                    console.log(`Applying settings to ${owner}/${repo}...`);
+
+                // Tag ruleset helpers
+                async function listTagRuleset(repo) {
+                    const { data } = await github.rest.repos.getRepoRulesets({ owner, repo });
+                    return data.find(r => r.target === 'tag' && r.name === 'Tag Protection');
+                }
+
+                async function createTagRuleset(repo) {
+                    await github.rest.repos.createRepoRuleset({
+                        owner,
+                        repo,
+                        name: 'Tag Protection',
+                        target: 'tag',
+                        enforcement: 'active',
+                        conditions: {
+                            ref_name: {
+                                exclude: [],
+                                include: ['refs/tags/*RC*', 'refs/tags/*V*']
+                            }
+                        },
+                        rules: [
+                            { type: 'creation' },
+                            { type: 'update' },
+                            { type: 'deletion' }
+                        ],
+                        bypass_actors: [
+                            {
+                                actor_id: githubAppId,
+                                actor_type: 'Integration',
+                                bypass_mode: 'exempt'
+                            }
+                        ]
+                    });
+                    core.info('Created tag ruleset');
+                }
+
+                async function deleteTagRuleset(repo, rulesetId) {
+                    await github.rest.repos.deleteRepoRuleset({
+                        owner,
+                        repo,
+                        ruleset_id: rulesetId
+                    });
+                    core.info(`Deleted tag ruleset ${rulesetId}`);
+                }
+
+                // Environment helpers
+                async function createEnvironment(repo, env) {
+                    await github.rest.repos.createOrUpdateEnvironment({
+                        owner,
+                        repo,
+                        environment_name: env.name,
+                        reviewers: env.reviewers,
+                        deployment_branch_policy: env.deployment_branch_policy,
+                        wait_timer: 0,
+                        can_admins_bypass: env.allow_admin_bypass
+                    });
+                    core.info(`(Re)created environment ${env.name}`);
+
+                    if (env.deployment_branch_policies) {
+                        for (const policy of env.deployment_branch_policies) {
+                            await github.rest.repos.createDeploymentBranchPolicy({
+                                owner,
+                                repo,
+                                environment_name: env.name,
+                                name: policy.name,
+                                type: policy.type
+                            });
+                            core.info(`Added deployment policy ${policy.name} to env ${env.name}`);
+                        }
+                    }
+                }
+
+                async function deleteEnvironment(repo, env) {
+                    await github.rest.repos.deleteEnvironment({
+                        owner,
+                        repo,
+                        environment_name: env.name
+                    });
+                    core.info(`Deleted environment ${env.name}`);
+                }
+
+                // Branch protection helper
+                async function protectBranch(repo, branch) {
+                    await github.rest.repos.updateBranchProtection({
+                        owner,
+                        repo,
+                        branch,
+                        required_linear_history: true,
+                        enforce_admins: false,
+                        required_pull_request_reviews: {
+                            require_code_owner_reviews: true,
+                            require_last_push_approval: true
+                        },
+                        required_conversation_resolution: true,
+                        required_status_checks: {
+                            strict: true,
+                            contexts: ['validate-pr-title']
+                        },
+                        restrictions: null,
+                        allow_force_pushes: false,
+                        allow_deletions: false
+                    });
                     
-                    // 1. Update repository settings
+                    // Required signatures (separate)
                     try {
-                        response = await github.request('PATCH /repos/{owner}/{repo}', {
+                        await github.rest.repos.createCommitSignatureProtection({
+                            owner,
+                            repo,
+                            branch
+                        });
+                    } catch (e) {
+                        // Ignore if already enabled or not supported
+                    }
+                    core.info(`Applied branch protection to ${branch}`);
+                }
+
+                for (const repo of repos) {
+                    core.startGroup(`Configuring ${owner}/${repo}`);
+
+                    // Repo settings
+                    try {
+                        await github.rest.repos.update({
                             owner,
                             repo,
                             allow_squash_merge: true,
@@ -157,371 +237,178 @@ jobs:
                             squash_merge_commit_title: 'PR_TITLE',
                             squash_merge_commit_message: 'PR_BODY'
                         });
-                    } catch (error) {
-                        if (error.status === 404) {
-                            console.log(`🚫Skipping Repo ${owner}/${repo}, Response status: ${error.status}`);
+                        core.info('Updated repository settings');
+                    } catch (e) {
+                        if (e.status === 404) {
+                            core.info(`Skipping missing repo ${repo}`);
+                            core.endGroup();
                             continue;
                         }
-                    }
-                    if (response.status !== 200) {
-                            console.error(`❌Failed to update repository settings for ${owner}/${repo}, Response status: ${response.status}`);
-                            continue;
-                    } else {
-                        console.log(`✅Updated repository settings for ${owner}/${repo}, Response status: ${response.status}`);
+                        core.setFailed(`Repo update failed: ${e.message}`);
+                        core.endGroup();
+                        continue;
                     }
 
-                    // 2. Enable merge queue
-                    /*await github.request('PUT /repos/{owner}/{repo}/merge-queue', {
-                        owner,
-                        repo,
-                        enabled: true
-                    }); */
-
-                    // 3. Ensure pr-title-check.yml exists and update with latest version
-                    let prTitleCheckExists = false;
-                    let sha = '';
+                    // pr-title-check workflow
+                    let existingSha;
                     try {
-                        response = await github.request('GET /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', {
+                        const { data } = await github.rest.repos.getContent({
                             owner,
-                            repo
+                            repo,
+                            path: '.github/workflows/pr-title-check.yml'
                         });
-                        console.log(`Checking pr-title-check.yml existence Response status: ${response.status}`);
-                        prTitleCheckExists = true;
-                        sha = response.data.sha;
-                    } catch (e) {
-                        prTitleCheckExists = false;
+                        existingSha = data.sha;
+                        core.info('pr-title-check.yml exists');
+                    } catch {
+                        core.info('pr-title-check.yml missing');
                     }
 
-                    // Read latest pr-title-check.yml from template
-                    console.log(`Workspace path: ${process.env.GITHUB_WORKSPACE}`);
                     const prTitleCheckYml = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/workflows/templates/pr-title-check.yml`, 'utf8');
-
-                    // Create or update pr-title-check.yml in the repo
-                    let putParams = {
+                    await github.rest.repos.createOrUpdateFileContents({
                         owner,
                         repo,
                         path: '.github/workflows/pr-title-check.yml',
-                        message: prTitleCheckExists ? 'Update pr-title-check workflow' : 'Add pr-title-check workflow',
+                        message: existingSha ? 'Update pr-title-check workflow' : 'Add pr-title-check workflow',
                         content: Buffer.from(prTitleCheckYml).toString('base64'),
-                        committer: {
-                            name: 'github-actions[bot]',
-                            email: 'praveena.m@pfizer.com'
-                        },
-                        author: {
-                            name: 'github-actions[bot]',
-                            email: 'praveena.m@pfizer.com'
-                        },
-                        signoff: true // -S
-                    };
-                    if (prTitleCheckExists && sha) {
-                        putParams.sha = sha;
-                    }
+                        committer: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
+                        author: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
+                        ...(existingSha ? { sha: existingSha } : {})
+                    });
+                    core.info('Ensured pr-title-check.yml');
 
-                    response = await github.request('PUT /repos/{owner}/{repo}/contents/.github/workflows/pr-title-check.yml', putParams);
-                    console.log(`${prTitleCheckExists ? '✅Updated' : '✅Created'} pr-title-check.yml in ${owner}/${repo}, Response status: ${response.status}`);
-
-                    // 4. Branch protection rules for protected branches
+                    // Branch + protection
                     for (const branch of defaultBranches) {
-                        // Check if branch exists
+                        let branchExists = true;
                         try {
-                            response = await github.request('GET /repos/{owner}/{repo}/branches/{branch}', {
-                                owner,
-                                repo,
-                                branch
-                            });
-                            console.log(`Branch ${branch} exists in ${owner}/${repo}, Response status: ${response.status}`);
-                        } catch (error) {
-                            console.log(`Branch ${branch} does not exist in ${owner}/${repo}, skipping branch protection.`);
-                            
-                            // create the branch from main branch if it does not exist.
-                            if (branch !== 'main') {
-                                try {
-                                    // Get main branch reference
-                                    const mainRefResponse = await github.request('GET /repos/{owner}/{repo}/git/ref/heads/main', {
-                                        owner,
-                                        repo
-                                    });
-                                    const mainSha = mainRefResponse.data.object.sha;
+                            await github.rest.repos.getBranch({ owner, repo, branch });
+                        } catch (e) {
+                            branchExists = false;
+                        }
 
-                                    // Create new branch from main
-                                    response = await github.request('POST /repos/{owner}/{repo}/git/refs', {
-                                        owner,
-                                        repo,
-                                        ref: `refs/heads/${branch}`,
-                                        sha: mainSha
-                                    });
-                                    console.log(`✅Created branch ${branch} from main in ${owner}/${repo}, Response status: ${response.status}`);
-                                } catch (createError) {
-                                    console.error(`❌Failed to create branch ${branch} in ${owner}/${repo}: ${createError.message}`);
-                                    continue; // Skip to next branch
-                                }
-                            } else {
-                                continue; // Skip to next branch
+                        if (!branchExists) {
+                            if (branch === 'main') {
+                                core.info('main branch missing; skipping protection');
+                                continue;
                             }
-                            
-                        }
-                        response = await github.request('PUT /repos/{owner}/{repo}/branches/{branch}/protection', {
-                            owner,
-                            repo,
-                            branch,
-                            required_linear_history: true,
-                            enforce_admins: false,
-                            required_pull_request_reviews: {
-                                require_code_owner_reviews: true,
-                                require_last_push_approval: true
-                            },
-                            required_conversation_resolution: true,
-                            required_status_checks: {
-                                strict: true,
-                                contexts: ['validate-pr-title']
-                            },
-                            restrictions: null,
-                            allow_force_pushes: false,
-                            required_signatures: true
-                        });
-                        console.log(`✅Branch protection applied to ${owner}/${repo} on branch ${branch}, Response status: ${response.status}`);
-                    }                   
-                    
-
-                    // 5. Tag protection rules for protected tags
-                    async function createTagRuleset() {
-                        try {
-                            const response = await github.request('POST /repos/{owner}/{repo}/rulesets', {
-                                owner,
-                                repo,
-                                name: 'Tag Protection',
-                                target: 'tag',
-                                enforcement: 'active',
-                                "conditions": {
-                                    "ref_name": {
-                                        "exclude": [],
-                                        "include": [
-                                            "refs/tags/*RC*",
-                                            "refs/tags/*V*"
-                                        ]
-                                    }
-                                },
-                                "rules": [
-                                    {
-                                        "type": "creation"
-                                    },
-                                    {
-                                        "type": "update"
-                                    },
-                                    {
-                                        "type": "deletion"
-                                    }
-                                ],
-                               "bypass_actors": [
-                                    {
-                                        "actor_id": githubAppId, // For GitHub App
-                                        "actor_type": "Integration",
-                                        "bypass_mode": "exempt"
-                                    }
-                                ]
-                            });
-
-                            console.log(`✅Tag ruleset created, Response status: ${response.status}`);
-                        } catch (error) {
-                            console.error(`Failed to create tag ruleset: ${error.message}`);
-                            process.exit(1);
-                        }
-                    }
-
-                    async function deleteTagRuleset() {
-                        try {
-                            response = await github.request('GET /repos/{owner}/{repo}/rulesets', {
-                                owner,
-                                repo
-                            });
-                            const rulesets = response.data;
-                            for (const ruleset of rulesets) {
-                                if (ruleset.target === 'tag' && ruleset.name === 'Tag Protection') {
-                                    await github.request('DELETE /repos/{owner}/{repo}/rulesets/{ruleset_id}', {
-                                        owner,
-                                        repo,
-                                        ruleset_id: ruleset.id
-                                    });
-                                    console.log(`Deleted existing tag ruleset with ID: ${ruleset.id}`);
-                                    break;
-                                }
-                            }
-                        } catch (error) {
-                            console.error(`Failed to delete existing tag ruleset: ${error.message}`);
-                            process.exit(1);
-                        }
-                    }
-                    
-                    let tagRulesetExists = false;
-                    try {
-                        response = await github.request('GET /repos/{owner}/{repo}/rulesets', {
-                            owner,
-                            repo
-                        });
-                        const rulesets = response.data;
-                        for (const ruleset of rulesets) {
-                            if (ruleset.target === 'tag' && ruleset.name === 'Tag Protection') {
-                                tagRulesetExists = true;
-                                break;
-                            }
-                        }
-                    } catch (error) {
-                        console.error(`Failed to fetch rulesets: ${error.message}`);
-                        process.exit(1);
-                    }
-
-                    // Apply rules for *RC* and *V* tags
-                    if (!tagRulesetExists) {                        
-                        await createTagRuleset();
-                    }
-                    else if (tagRulesetExists && forceRecreate) {
-                        console.log(`Tag ruleset already exists in ${owner}/${repo}, deleting and recreating as per input.`);
-                        await deleteTagRuleset();  
-                        await createTagRuleset();
-                    }
-                    else {
-                        console.log(`Tag ruleset already exists in ${owner}/${repo}, skipping creation as per input.`);
-                    }                   
-
-                    // 6. Create environments with protection rules
-                    async function createEnvironment(env) {
-                        await github.request('PUT /repos/{owner}/{repo}/environments/{environment_name}', {
-                            owner,
-                            repo,
-                            environment_name: env.name,
-                            reviewers: env.reviewers.map(r => (r)),
-                            deployment_branch_policy: env.deployment_branch_policy,
-                            wait_timer: 0,
-                            can_admins_bypass: env.allow_admin_bypass
-                        });
-                        console.log(`✅Recreated environment '${env.name}' with protection rules`);
-
-                        // Create environment deployment branch policies if any
-                        if (env.deployment_branch_policies) {
-                            for (const policy of env.deployment_branch_policies) {
-                                await github.request('POST /repos/{owner}/{repo}/environments/{environment_name}/deployment-branch-policies', {
+                            try {
+                                const { data: mainRef } = await github.rest.git.getRef({
                                     owner,
                                     repo,
-                                    environment_name: env.name,
-                                    type: policy.type,
-                                    name: policy.name
+                                    ref: 'heads/main'
                                 });
-                                console.log(`✅Added deployment branch policy '${policy.name}' to environment '${env.name}'`);
+                                await github.rest.git.createRef({
+                                    owner,
+                                    repo,
+                                    ref: `refs/heads/${branch}`,
+                                    sha: mainRef.object.sha
+                                });
+                                core.info(`Created branch ${branch} from main`);
+                            } catch (e) {
+                                core.warning(`Failed to create branch ${branch}: ${e.message}`);
+                                continue;
                             }
                         }
+                        await protectBranch(repo, branch);
                     }
 
-                    // Delete existing environment
-                    async function deleteEnvironment(env) {
-                        await github.request('DELETE /repos/{owner}/{repo}/environments/{environment_name}', {
-                            owner,
-                            repo,
-                            environment_name: env.name
-                        });
-                        console.log(`✅Deleted environment '${env.name}'`);
+                    // Tag ruleset
+                    try {
+                        const existing = await listTagRuleset(repo);
+                        if (!existing) {
+                            await createTagRuleset(repo);
+                        } else if (existing && forceRecreate) {
+                            core.info('Recreating tag ruleset');
+                            await deleteTagRuleset(repo, existing.id);
+                            await createTagRuleset(repo);
+                        } else {
+                            core.info('Tag ruleset exists; skipping');
+                        }
+                    } catch (e) {
+                        core.setFailed(`Tag ruleset error: ${e.message}`);
+                        core.endGroup();
+                        continue;
                     }
 
+                    // Environments
                     for (const env of environments) {
+                        let envExists = true;
                         try {
-                            // Check if environment exists
-                            await github.request('GET /repos/{owner}/{repo}/environments/{environment_name}', {
+                            await github.rest.repos.getEnvironment({
                                 owner,
                                 repo,
                                 environment_name: env.name
                             });
-                            console.log(`Environment '${env.name}' already exists`);
+                        } catch (e) {
+                            if (e.status === 404) envExists = false;
+                            else throw e;
+                        }
 
-                            if (forceRecreate) {
-                                console.log(`Force recreate is enabled. Deleting and recreating environment '${env.name}'`);
-                                await deleteEnvironment(env);
-                                await createEnvironment(env);
-                            }
-                        } 
-                        catch (error) {
-                            if (error.status === 404) {
-                                console.log(`Environment '${env.name}' does not exist. Creating...`);
-                                await createEnvironment(env);
-                            } else {
-                                console.error(`❌Failed to process environment '${env.name}': ${error.message}`);
-                                process.exit(1);
-                            }
+                        if (envExists && forceRecreate) {
+                            await deleteEnvironment(repo, env);
+                            await createEnvironment(repo, env);
+                        } else if (!envExists) {
+                            await createEnvironment(repo, env);
+                        } else {
+                            core.info(`Environment ${env.name} exists; skip (no force)`);
                         }
                     }
 
-                    // 7. Check and create SonarQube project properties file.
+                    // SonarQube project properties
                     const sonarPropsPath = 'sonar-project.properties';
                     const expectedProjectKey = `${owner}_${repo}`;
-                    let shaSonar = '';
-                    let sonarPropsContent = `sonar.projectKey=${expectedProjectKey}`;
+                    let sonarSha;
                     let needsUpdate = false;
+                    let sonarPropsContent = `sonar.projectKey=${expectedProjectKey}`;
 
-                    // Check if sonar-project.properties exists and validate content
                     try {
-                        response = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+                        const { data } = await github.rest.repos.getContent({
                             owner,
                             repo,
                             path: sonarPropsPath
                         });
-                        shaSonar = response.data.sha;
-                        const decodedContent = Buffer.from(response.data.content, 'base64').toString('utf-8');
-                        const projectKeyRegex = /^sonar\.projectKey=(.+)$/m;
-                        const match = decodedContent.match(projectKeyRegex);
-
+                        sonarSha = data.sha;
+                        const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
+                        const regex = /^sonar\.projectKey=(.+)$/m;
+                        const match = decoded.match(regex);
                         if (!match || match[1] !== expectedProjectKey) {
-                            // Update only the project key line or add if missing
-                            const updatedContent = decodedContent.replace(projectKeyRegex, `sonar.projectKey=${expectedProjectKey}`);
-                            sonarPropsContent = projectKeyRegex.test(decodedContent) ? updatedContent : `${sonarPropsContent}\n${decodedContent}`;
+                            if (regex.test(decoded)) {
+                                sonarPropsContent = decoded.replace(regex, `sonar.projectKey=${expectedProjectKey}`);
+                            } else {
+                                sonarPropsContent = `${decoded.trim()}\nsonar.projectKey=${expectedProjectKey}\n`;
+                            }
                             needsUpdate = true;
                         } else {
-                            console.log(`SonarQube project properties file already exists and is correct in ${owner}/${repo}`);
+                            core.info('Sonar project key correct');
                         }
-                    } catch (error) {
-                        if (error.status === 404) {
-                            needsUpdate = true; // File does not exist, needs creation
-                            console.log(`SonarQube project properties file does not exist in ${owner}/${repo}, will create.`);
+                    } catch (e) {
+                        if (e.status === 404) {
+                            needsUpdate = true;
                         } else {
-                            console.error(`❌Failed to check SonarQube project properties file: ${error.message}`);
-                            process.exit(1);
+                            core.setFailed(`Sonar file check failed: ${e.message}`);
                         }
                     }
 
-                    // Create or update sonar-project.properties if needed
                     if (needsUpdate) {
-                        response = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+                        await github.rest.repos.createOrUpdateFileContents({
                             owner,
                             repo,
                             path: sonarPropsPath,
                             message: 'Ensure sonar-project.properties with correct project key',
                             content: Buffer.from(sonarPropsContent).toString('base64'),
-                            ...(shaSonar ? { sha: shaSonar } : {})
+                            ...(sonarSha ? { sha: sonarSha } : {})
                         });
-                        console.log(`✅Created/Updated SonarQube project properties file in ${owner}/${repo}`);
+                        core.info('Updated sonar-project.properties');
                     }
 
-                    // 8. Add Atlassian team service account as a collaborator with write access
+                    // Team permissions
                     await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
                         org: owner,
                         team_slug: atlassianTeamServiceAccount,
-                        owner: owner,
-                        repo: repo,
-                        permission: 'push' // Options: pull, push, admin, maintain, triage
+                        owner,
+                        repo,
+                        permission: 'push'
                     });
+                    core.info(`Added team ${atlassianTeamServiceAccount} with push`);
 
-                    core.info(`✅Team '${atlassianTeamServiceAccount}' added to repo '${repo}' with push permission for Jita integration.`);
-
-                    
-                    try {
-                        response = await github.request('PUT /repos/{owner}/{repo}/collaborators/{username}', {
-                            owner,
-                            repo,
-                            username: atlassianTeamServiceAccount,
-                            permission: 'write'
-                        });
-                        console.log(`✅Added ${atlassianTeamServiceAccount} as collaborator with write access to ${owner}/${repo}, Response status: ${response.status}`);
-                    } catch (error) {
-                        console.error(`❌Failed to add ${atlassianTeamServiceAccount} as collaborator to ${owner}/${repo}: ${error.message}`);
-                    }
-
-                    console.log(`✅Completed applying settings to ${owner}/${repo}`);
-                    console.log(`--------------------------------------------------------`);
+                    core.endGroup();
                 }
