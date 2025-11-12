@@ -439,9 +439,20 @@ jobs:
                         pfizerSha = data.sha;
                         pfizerContent = Buffer.from(data.content, 'base64').toString('utf-8');
 
-                        // Check if all required lines exist
-                        for (const line of requiredPfizerYml.split('\n')) {
-                            if (!pfizerContent.includes(line)) {
+                        // Parse .pfizer.yml as key-value pairs
+                        const pfizerMap = {};
+                        pfizerContent.split('\n').forEach(line => {
+                            const [k, ...v] = line.split(':');
+                            if (k && v.length) pfizerMap[k.trim()] = v.join(':').trim();
+                        });
+
+                        // Check if all required keys/values exist and match
+                        for (const reqLine of requiredPfizerYml.split('\n')) {
+                            const [reqKey, ...reqVal] = reqLine.split(':');
+                            if (!reqKey || reqVal.length === 0) continue;
+                            const key = reqKey.trim();
+                            const val = reqVal.join(':').trim();
+                            if (!(key in pfizerMap) || pfizerMap[key] !== val) {
                                 needsPfizerUpdate = true;
                                 break;
                             }
@@ -455,14 +466,20 @@ jobs:
                     }
 
                     if (needsPfizerUpdate) {
-                        // Merge required lines with existing content, preserving other lines
-                        let newPfizerContent = pfizerContent;
-                        for (const line of requiredPfizerYml.split('\n')) {
-                            if (!newPfizerContent.includes(line)) {
-                                newPfizerContent = `${newPfizerContent.trim()}\n${line}`;
-                            }
+                        // Merge required lines with existing content, updating by key
+                        const pfizerMap = {};
+                        pfizerContent.split('\n').forEach(line => {
+                            const [k, ...v] = line.split(':');
+                            if (k && v.length) pfizerMap[k.trim()] = v.join(':').trim();
+                        });
+                        for (const reqLine of requiredPfizerYml.split('\n')) {
+                            const [reqKey, ...reqVal] = reqLine.split(':');
+                            if (!reqKey || reqVal.length === 0) continue;
+                            pfizerMap[reqKey.trim()] = reqVal.join(':').trim();
                         }
-                        // If file was missing, just use required content
+                        let newPfizerContent = Object.entries(pfizerMap)
+                            .map(([k, v]) => `${k}: ${v}`)
+                            .join('\n');
                         if (!pfizerContent) newPfizerContent = requiredPfizerYml;
 
                         await github.rest.repos.createOrUpdateFileContents({
@@ -474,8 +491,6 @@ jobs:
                             ...(pfizerSha ? { sha: pfizerSha } : {})
                         });
                         core.info('Ensured .pfizer.yml has required content');
-
-
                     } else {
                         core.info('.pfizer.yml already contains required content');
                     }
