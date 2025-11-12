@@ -450,8 +450,12 @@ jobs:
 
                     // 7. Check and create SonarQube project properties file.
                     const sonarPropsPath = 'sonar-project.properties';
-                    let sonarPropsExists = false;
+                    const expectedProjectKey = `${owner}_${repo}`;
                     let shaSonar = '';
+                    let sonarPropsContent = `sonar.projectKey=${expectedProjectKey}`;
+                    let needsUpdate = false;
+
+                    // Check if sonar-project.properties exists and validate content
                     try {
                         response = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
                             owner,
@@ -459,67 +463,53 @@ jobs:
                             path: sonarPropsPath
                         });
                         shaSonar = response.data.sha;
-                        sonarPropsExists = true;
+                        const decodedContent = Buffer.from(response.data.content, 'base64').toString('utf-8');
+                        const projectKeyRegex = /^sonar\.projectKey=(.+)$/m;
+                        const match = decodedContent.match(projectKeyRegex);
+
+                        if (!match || match[1] !== expectedProjectKey) {
+                            // Update only the project key line or add if missing
+                            const updatedContent = decodedContent.replace(projectKeyRegex, `sonar.projectKey=${expectedProjectKey}`);
+                            sonarPropsContent = projectKeyRegex.test(decodedContent) ? updatedContent : `${sonarPropsContent}\n${decodedContent}`;
+                            needsUpdate = true;
+                        } else {
+                            console.log(`SonarQube project properties file already exists and is correct in ${owner}/${repo}`);
+                        }
                     } catch (error) {
                         if (error.status === 404) {
-                            sonarPropsExists = false;
-                            console.log(`SonarQube project properties file does not exist in ${owner}/${repo}`);
+                            needsUpdate = true; // File does not exist, needs creation
+                            console.log(`SonarQube project properties file does not exist in ${owner}/${repo}, will create.`);
                         } else {
                             console.error(`❌Failed to check SonarQube project properties file: ${error.message}`);
                             process.exit(1);
                         }
                     }
-                    
-                    // If exists, check if the sonar.projectKey matches expected format else recreate.
-                    if (sonarPropsExists) {
-                        const contentResponse = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
-                            owner,
-                            repo,
-                            path:sonarPropsPath
-                        });
-                        const decodedContent = Buffer.from(contentResponse.data.content, 'base64').toString('utf-8');
-                        const expectedProjectKey = `${owner}_${repo}`;
-                        const projectKeyRegex = /^sonar\.projectKey=(.+)$/m;
-                        const match = decodedContent.match(projectKeyRegex);
-                        if (!match || match[1] !== expectedProjectKey) {
-                            console.log(`SonarQube project key does not match expected format. Recreating file...`);
 
-                            // Replace only the project key line.
-                            const updatedContent = decodedContent.replace(projectKeyRegex, `sonar.projectKey=${expectedProjectKey}`);
-                            const updatedContentBase64 = Buffer.from(updatedContent).toString('base64');
-                            await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
-                                owner,
-                                repo,
-                                path: sonarPropsPath,
-                                message: 'Update sonar-project.properties with correct project key',
-                                content: updatedContentBase64,
-                                sha: contentResponse.data.sha
-                            });
-
-                            console.log(`✅Updated SonarQube project properties file in ${owner}/${repo}`);
-                        } else {
-                            sonarPropsExists = false;
-                        }
-                    }
-
-                    if (!sonarPropsExists) {
-                        // Create sonar-project.properties file
-                        const content = Buffer.from(`sonar.projectKey=${owner}_${repo}`).toString('base64');
-
+                    // Create or update sonar-project.properties if needed
+                    if (needsUpdate) {
                         response = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
                             owner,
                             repo,
                             path: sonarPropsPath,
-                            message: 'Add sonar-project.properties',
-                            content: content,
-                            sha: shaSonar
+                            message: 'Ensure sonar-project.properties with correct project key',
+                            content: Buffer.from(sonarPropsContent).toString('base64'),
+                            ...(shaSonar ? { sha: shaSonar } : {})
                         });
-                        console.log(`✅Created SonarQube project properties file in ${owner}/${repo}`);
-                    } else {
-                        console.log(`SonarQube project properties file already exists in ${owner}/${repo}`);
+                        console.log(`✅Created/Updated SonarQube project properties file in ${owner}/${repo}`);
                     }
 
                     // 8. Add Atlassian team service account as a collaborator with write access
+                    await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
+                        org: org,
+                        team_slug: atlassianTeamServiceAccount,
+                        owner: org,
+                        repo: repo,
+                        permission: 'push' // Options: pull, push, admin, maintain, triage
+                    });
+
+                    core.info(`✅Team '${atlassianTeamServiceAccount}' added to repo '${repo}' with push permission for Jita integration.`);
+
+                    
                     try {
                         response = await github.request('PUT /repos/{owner}/{repo}/collaborators/{username}', {
                             owner,
