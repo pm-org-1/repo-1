@@ -37,6 +37,8 @@ jobs:
                 });
 
                 if (!jiraValid) {
-                    // Exit with failure to indicate invalid PR title.
-                    throw new Error(commentBody);
+                    console.log(commentBody);
+                    
+                    // Exit gracefully with non-zero exit code to indicate invalid PR title.
+                    process.exit(1);
                 }
