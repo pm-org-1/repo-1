@@ -63,6 +63,9 @@ jobs:
                 console.log(`Approving teams slugs: ${teamSlugs.join(', ')}`);
                 const approving_teams = [];
 
+                // Replace with your GitHub App ID
+                const githubAppId = 2271772; //1932357;
+
                 // Variable to hold API response
                 let response;
                 const fs = require('fs');
@@ -139,8 +142,9 @@ jobs:
                 for (const repo of repos) {
                     console.log(`--------------------------------------------------------`);
                     console.log(`Applying settings to ${owner}/${repo}...`);
+                    
+                    // 1. Update repository settings
                     try {
-                        // 1. Update repository settings
                         response = await github.request('PATCH /repos/{owner}/{repo}', {
                             owner,
                             repo,
@@ -162,6 +166,13 @@ jobs:
                     } else {
                         console.log(`✅Updated repository settings for ${owner}/${repo}, Response status: ${response.status}`);
                     }
+
+                    // 2. Enable merge queue
+                    /*await github.request('PUT /repos/{owner}/{repo}/merge-queue', {
+                        owner,
+                        repo,
+                        enabled: true
+                    }); */
 
                     // 3. Ensure pr-title-check.yml exists and update with latest version
                     let prTitleCheckExists = false;
@@ -266,12 +277,10 @@ jobs:
                             required_signatures: true
                         });
                         console.log(`✅Branch protection applied to ${owner}/${repo} on branch ${branch}, Response status: ${response.status}`);
-                    }
+                    }                   
                     
-                    // Replace with your GitHub App ID
-                    const githubAppId = 2271772; //1932357;
 
-                    // Function to create tag protection rule
+                    // 5. Tag protection rules for protected tags
                     async function createTagRuleset() {
                         try {
                             const response = await github.request('POST /repos/{owner}/{repo}/rulesets', {
@@ -316,7 +325,7 @@ jobs:
                         }
                     }
 
-                     async function deleteTagRuleset() {
+                    async function deleteTagRuleset() {
                         try {
                             response = await github.request('GET /repos/{owner}/{repo}/rulesets', {
                                 owner,
@@ -358,7 +367,7 @@ jobs:
                         throw error;
                     }
 
-                    // Apply rules for *RC* and *V*
+                    // Apply rules for *RC* and *V* tags
                     if (!tagRulesetExists) {                        
                         await createTagRuleset();
                     }
@@ -371,7 +380,7 @@ jobs:
                         console.log(`Tag ruleset already exists in ${owner}/${repo}, skipping creation as per input.`);
                     }                   
 
-                    // Create environments with protection rules
+                    // 6. Create environments with protection rules
                     async function createEnvironment(env) {
                         await github.request('PUT /repos/{owner}/{repo}/environments/{environment_name}', {
                             owner,
@@ -434,6 +443,67 @@ jobs:
                                 throw error;
                             }
                         }
+                    }
+
+                    // 7. Check and create SonarQube project properties file.
+                    const sonarPropsPath = 'sonar-project.properties';
+                    let sonarPropsExists = false;
+                    try {
+                        response = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+                            owner,
+                            repo,
+                            path: sonarPropsPath
+                        });
+                        sonarPropsExists = true;
+                    } catch (error) {
+                        if (error.status === 404) {
+                            sonarPropsExists = false;
+                        } else {
+                            console.error(`❌Failed to check SonarQube project properties file: ${error.message}`);
+                            throw error;
+                        }
+                    }
+                    
+                    // If exists, check if the sonar.projectKey matches expected format else recreate.
+                    if (sonarPropsExists) {
+                        const contentResponse = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+                            owner,
+                            repo,
+                            path:sonarPropsPath
+                        });
+                        const decodedContent = Buffer.from(contentResponse.data.content, 'base64').toString('utf-8');
+                        const expectedProjectKey = `${owner}_${repo}`;
+                        const projectKeyRegex = /^sonar\.projectKey=(.+)$/m;
+                        const match = decodedContent.match(projectKeyRegex);
+                        if (!match || match[1] !== expectedProjectKey) {
+                            console.log(`SonarQube project key does not match expected format. Recreating file...`);
+                            await github.request('DELETE /repos/{owner}/{repo}/contents/{path}', {
+                                owner,
+                                repo,
+                                path: sonarPropsPath,
+                                message: 'Remove incorrect sonar-project.properties',
+                                sha: contentResponse.data.sha
+                            });
+                            sonarPropsExists = false;
+                        }
+                    }
+
+                    if (!sonarPropsExists) {
+                        // Create sonar-project.properties file
+                        const content = Buffer.from(`# SonarQube project properties
+                            sonar.projectKey=${owner}_${repo}
+                            `).toString('base64');
+
+                        response = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+                            owner,
+                            repo,
+                            path: sonarPropsPath,
+                            message: 'Add sonar-project.properties',
+                            content: content
+                        });
+                        console.log(`✅Created SonarQube project properties file in ${owner}/${repo}`);
+                    } else {
+                        console.log(`SonarQube project properties file already exists in ${owner}/${repo}`);
                     }
 
                     console.log(`✅Completed applying settings to ${owner}/${repo}`);
