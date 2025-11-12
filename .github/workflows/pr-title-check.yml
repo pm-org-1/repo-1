@@ -1,0 +1,29 @@
+name: Validate PR Title
+
+on:
+    pull_request:
+        types: [opened, edited, synchronize]
+
+jobs:
+    validate-pr-title:
+        runs-on: ubuntu-latest #[self-hosted, bolt-ubuntu]
+        steps:
+        - name: Check PR title format
+          uses: actions/github-script@v7
+          script: |
+            const title = context.payload.pull_request.title;
+            let commentBody = '';
+
+            const jiraRegex = /^(IAS|OPS|DEV)-\d+: /;
+            if (!jiraRegex.test(title)) {
+                commentBody += '❌ Pull request title must reference a Jira Work Item. For example: IAS-12650: <pr-title>\n';
+            } else {
+                commentBody += '✅ Pull request title is valid.\n';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: commentBody,
+            });
