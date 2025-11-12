@@ -37,13 +37,13 @@ jobs:
             github-token: ${{ steps.generate_token.outputs.token }}
             script: |
                 const owner = context.repo.owner;
-                console.log(`Owner: ${owner}`);
+                core.info(`Owner: ${owner}`);
 
                 const reposInput = `${{ github.event.inputs.repos }}` || '';
-                console.log(`Repos Input: ${reposInput}`);
+                core.info(`Repos Input: ${reposInput}`);
                 
                 if (!reposInput.trim()) {
-                    console.log('No repository names provided. Exiting.');
+                    core.info('No repository names provided. Exiting.');
                     return;
                 }
                 const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
@@ -57,6 +57,12 @@ jobs:
                 const approving_teams = [];
                 const githubAppId = 2271772;
                 const atlassianTeamServiceAccount = 'atlassian-team-service-account';
+                const requiredPfizerYml = [
+                        'cmdb_id: ~',
+                        'primary_contact: REZNIA01',
+                        'additional_contacts: DL-VOX-Dev@pfizer.com',
+                        'jira_project: IAS'
+                    ].join('\n');
 
                 const fs = require('fs');
 
@@ -209,7 +215,7 @@ jobs:
                         allow_force_pushes: false,
                         allow_deletions: false
                     });
-                    
+
                     // Required signatures (separate)
                     try {
                         await github.rest.repos.createCommitSignatureProtection({
@@ -404,11 +410,67 @@ jobs:
                     await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
                         org: owner,
                         team_slug: atlassianTeamServiceAccount,
-                        owner,
                         repo,
                         permission: 'push'
                     });
                     core.info(`Added team ${atlassianTeamServiceAccount} with push`);
+
+                    // Ensure .pfizer.yml has required content
+                    const pfizerConfigPath = '.pfizer.yml';                   
+
+                    let pfizerSha;
+                    let pfizerContent = '';
+                    let needsPfizerUpdate = false;
+
+                    try {
+                        const { data } = await github.rest.repos.getContent({
+                            owner,
+                            repo,
+                            path: pfizerConfigPath
+                        });
+                        pfizerSha = data.sha;
+                        pfizerContent = Buffer.from(data.content, 'base64').toString('utf-8');
+
+                        // Check if all required lines exist
+                        for (const line of requiredPfizerYml.split('\n')) {
+                            if (!pfizerContent.includes(line)) {
+                                needsPfizerUpdate = true;
+                                break;
+                            }
+                        }
+                    } catch (e) {
+                        if (e.status === 404) {
+                            needsPfizerUpdate = true;
+                        } else {
+                            core.setFailed(`Failed to check .pfizer.yml: ${e.message}`);
+                        }
+                    }
+
+                    if (needsPfizerUpdate) {
+                        // Merge required lines with existing content, preserving other lines
+                        let newPfizerContent = pfizerContent;
+                        for (const line of requiredPfizerYml.split('\n')) {
+                            if (!newPfizerContent.includes(line)) {
+                                newPfizerContent = `${newPfizerContent.trim()}\n${line}`;
+                            }
+                        }
+                        // If file was missing, just use required content
+                        if (!pfizerContent) newPfizerContent = requiredPfizerYml;
+
+                        await github.rest.repos.createOrUpdateFileContents({
+                            owner,
+                            repo,
+                            path: pfizerConfigPath,
+                            message: pfizerSha ? 'Update .pfizer.yml for required fields' : 'Add default .pfizer.yml for code scanning',
+                            content: Buffer.from(newPfizerContent).toString('base64'),
+                            ...(pfizerSha ? { sha: pfizerSha } : {})
+                        });
+                        core.info('Ensured .pfizer.yml has required content');
+
+
+                    } else {
+                        core.info('.pfizer.yml already contains required content');
+                    }
 
                     core.endGroup();
                 }
