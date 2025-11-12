@@ -186,7 +186,7 @@ jobs:
                 }
 
                 async function deleteEnvironment(repo, env) {
-                    await github.rest.repos.deleteEnvironment({
+                    await github.rest.repos.deleteAnEnvironment({
                         owner,
                         repo,
                         environment_name: env.name
