@@ -500,9 +500,9 @@ jobs:
 
                     // 8. Add Atlassian team service account as a collaborator with write access
                     await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
-                        org: org,
+                        org: owner,
                         team_slug: atlassianTeamServiceAccount,
-                        owner: org,
+                        owner: owner,
                         repo: repo,
                         permission: 'push' // Options: pull, push, admin, maintain, triage
                     });
