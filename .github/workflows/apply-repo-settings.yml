@@ -66,6 +66,9 @@ jobs:
                 // Replace with your GitHub App ID
                 const githubAppId = 2271772; //1932357;
 
+                // Atlassian team service account.
+                const atlassianTeamServiceAccount = "atlassian-team-service-account";
+
                 // Variable to hold API response
                 let response;
                 const fs = require('fs');
@@ -510,6 +513,19 @@ jobs:
                         console.log(`✅Created SonarQube project properties file in ${owner}/${repo}`);
                     } else {
                         console.log(`SonarQube project properties file already exists in ${owner}/${repo}`);
+                    }
+
+                    // 8. Add Atlassian team service account as a collaborator with write access
+                    try {
+                        response = await github.request('PUT /repos/{owner}/{repo}/collaborators/{username}', {
+                            owner,
+                            repo,
+                            username: atlassianTeamServiceAccount,
+                            permission: 'write'
+                        });
+                        console.log(`✅Added ${atlassianTeamServiceAccount} as collaborator with write access to ${owner}/${repo}, Response status: ${response.status}`);
+                    } catch (error) {
+                        console.error(`❌Failed to add ${atlassianTeamServiceAccount} as collaborator to ${owner}/${repo}: ${error.message}`);
                     }
 
                     console.log(`✅Completed applying settings to ${owner}/${repo}`);
