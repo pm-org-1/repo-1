@@ -1,4 +1,4 @@
-# Apply Repo Settings - GitHub Actions Workflow.
+# Apply Repo Settings - GitHub Actions Workflow
 
 ## Overview
 
@@ -362,4 +362,5 @@ For issues or questions:
 
 **Maintained by:** DevOps Team  
 **Last Updated:** November 11, 2025
+
 
