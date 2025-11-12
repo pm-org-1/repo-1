@@ -407,13 +407,21 @@ jobs:
                     }
 
                     // Team permissions
-                    await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
-                        org: owner,
-                        team_slug: atlassianTeamServiceAccount,
-                        repo,
-                        permission: 'push'
-                    });
-                    core.info(`Added team ${atlassianTeamServiceAccount} with push`);
+                    try {
+                        await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
+                            org: owner,
+                            team_slug: atlassianTeamServiceAccount,
+                            repo,
+                            permission: 'push'
+                        });
+                        core.info(`Added team ${atlassianTeamServiceAccount} with push`);
+                    } catch (e) {
+                        if (e.status === 404) {
+                            core.warning(`Team or repo not found for team permission: ${atlassianTeamServiceAccount} on ${repo}`);
+                        } else {
+                            core.setFailed(`Failed to set team permissions: ${e.message}`);
+                        }
+                    }
 
                     // Ensure .pfizer.yml has required content
                     const pfizerConfigPath = '.pfizer.yml';                   
