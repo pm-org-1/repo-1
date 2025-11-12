@@ -19,17 +19,24 @@ jobs:
             script: |
                 const title = context.payload.pull_request.title;
                 let commentBody = '';
+                let jiraValid = false;
 
                 const jiraRegex = /^(IAS|OPS|DEV)-\d+: ?/;
                 if (!jiraRegex.test(title)) {
                     commentBody += '❌ Pull request title must reference a Jira Work Item. For example: IAS-12650: Fix login bug\n';
                 } else {
                     commentBody += '✅ Pull request title is valid.\n';
+                    jiraValid = true;
                 }
 
                 await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: commentBody,
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.payload.pull_request.number,
+                    body: commentBody,
                 });
+
+                if (!jiraValid) {
+                    // Exit with failure to indicate invalid PR title.
+                    throw new Error(commentBody);
+                }
