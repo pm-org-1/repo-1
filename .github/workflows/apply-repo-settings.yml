@@ -83,7 +83,7 @@ jobs:
                         return response.data.id;
                     } catch (error) {
                         console.error(`Failed to get team ID for ${teamSlug}: ${error.message}`);
-                        throw error;
+                        process.exit(1);
                     }
                 }
 
@@ -324,7 +324,7 @@ jobs:
                             console.log(`✅Tag ruleset created, Response status: ${response.status}`);
                         } catch (error) {
                             console.error(`Failed to create tag ruleset: ${error.message}`);
-                            throw error;
+                            process.exit(1);
                         }
                     }
 
@@ -348,7 +348,7 @@ jobs:
                             }
                         } catch (error) {
                             console.error(`Failed to delete existing tag ruleset: ${error.message}`);
-                            throw error;
+                            process.exit(1);
                         }
                     }
                     
@@ -367,7 +367,7 @@ jobs:
                         }
                     } catch (error) {
                         console.error(`Failed to fetch rulesets: ${error.message}`);
-                        throw error;
+                        process.exit(1);
                     }
 
                     // Apply rules for *RC* and *V* tags
@@ -443,7 +443,7 @@ jobs:
                                 await createEnvironment(env);
                             } else {
                                 console.error(`❌Failed to process environment '${env.name}': ${error.message}`);
-                                throw error;
+                                process.exit(1);
                             }
                         }
                     }
@@ -451,19 +451,22 @@ jobs:
                     // 7. Check and create SonarQube project properties file.
                     const sonarPropsPath = 'sonar-project.properties';
                     let sonarPropsExists = false;
+                    let shaSonar = '';
                     try {
                         response = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
                             owner,
                             repo,
                             path: sonarPropsPath
                         });
+                        shaSonar = response.data.sha;
                         sonarPropsExists = true;
                     } catch (error) {
                         if (error.status === 404) {
                             sonarPropsExists = false;
+                            console.log(`SonarQube project properties file does not exist in ${owner}/${repo}`);
                         } else {
                             console.error(`❌Failed to check SonarQube project properties file: ${error.message}`);
-                            throw error;
+                            process.exit(1);
                         }
                     }
                     
@@ -508,7 +511,8 @@ jobs:
                             repo,
                             path: sonarPropsPath,
                             message: 'Add sonar-project.properties',
-                            content: content
+                            content: content,
+                            sha: shaSonar
                         });
                         console.log(`✅Created SonarQube project properties file in ${owner}/${repo}`);
                     } else {
