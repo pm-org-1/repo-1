@@ -29,16 +29,16 @@ jobs:
                     jiraValid = true;
                 }
 
-                await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: context.payload.pull_request.number,
-                    body: commentBody,
-                });
-
                 if (!jiraValid) {
                     console.log(commentBody);
-                    
+
+                    await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.payload.pull_request.number,
+                        body: commentBody,
+                    });
+
                     // Exit gracefully with non-zero exit code to indicate invalid PR title.
                     process.exit(1);
                 }
