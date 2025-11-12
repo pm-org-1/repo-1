@@ -477,22 +477,28 @@ jobs:
                         const match = decodedContent.match(projectKeyRegex);
                         if (!match || match[1] !== expectedProjectKey) {
                             console.log(`SonarQube project key does not match expected format. Recreating file...`);
-                            await github.request('DELETE /repos/{owner}/{repo}/contents/{path}', {
+
+                            // Replace only the project key line.
+                            const updatedContent = decodedContent.replace(projectKeyRegex, `sonar.projectKey=${expectedProjectKey}`);
+                            const updatedContentBase64 = Buffer.from(updatedContent).toString('base64');
+                            await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
                                 owner,
                                 repo,
                                 path: sonarPropsPath,
-                                message: 'Remove incorrect sonar-project.properties',
+                                message: 'Update sonar-project.properties with correct project key',
+                                content: updatedContentBase64,
                                 sha: contentResponse.data.sha
                             });
+
+                            console.log(`✅Updated SonarQube project properties file in ${owner}/${repo}`);
+                        } else {
                             sonarPropsExists = false;
                         }
                     }
 
                     if (!sonarPropsExists) {
                         // Create sonar-project.properties file
-                        const content = Buffer.from(`# SonarQube project properties
-                            sonar.projectKey=${owner}_${repo}
-                            `).toString('base64');
+                        const content = Buffer.from(`sonar.projectKey=${owner}_${repo}`).toString('base64');
 
                         response = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
                             owner,
