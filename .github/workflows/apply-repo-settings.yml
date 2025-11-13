@@ -410,7 +410,7 @@ jobs:
                     try {
                         await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
                             org: owner,
-                            team_slug: atlassianTeamServiceAccount,
+                            team_slug: 14912079,
                             repo,
                             permission: 'push'
                         });
