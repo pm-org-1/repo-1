@@ -406,8 +406,16 @@ jobs:
                         core.info('Updated sonar-project.properties');
                     }
 
+                    // Get team details by slug and set permissions
+                    respo =await github.rest.teams.getByName({
+                        org: owner,
+                        team_slug: atlassianTeamServiceAccount
+                    });
+                    core.info(`Fetched team ${atlassianTeamServiceAccount} details`);
+                    core.info(`Team ID: ${respo.data}`);
+
                     // Team permissions
-                    try {
+                    //try {
                         await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
                             org: owner,
                             team_slug: 14912079,
@@ -415,13 +423,13 @@ jobs:
                             permission: 'push'
                         });
                         core.info(`Added team ${atlassianTeamServiceAccount} with push`);
-                    } catch (e) {
+                    /*} catch (e) {
                         if (e.status === 404) {
                             core.warning(`Team or repo not found for team permission: ${atlassianTeamServiceAccount} on ${repo}`);
                         } else {
                             core.setFailed(`Failed to set team permissions: ${e.message}`);
                         }
-                    }
+                    }*/
 
                     // Ensure .pfizer.yml has required content
                     const pfizerConfigPath = '.pfizer.yml';                   
