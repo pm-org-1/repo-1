@@ -2,507 +2,570 @@ name: Apply Repo Settings
 on:
     workflow_dispatch:
         inputs:
+            vox_team:
+                description: "Apply settings for all the repos under this team"
+                required: false
+                type: string
+                default: "ias-team-admin"
+            apply_to_all_repos:
+                description: "Apply settings to all repos under the above mentioned team"
+                required: false
+                type: boolean
+                default: true
             repos:
-                description: 'Comma-separated list of repo names (e.g. repo1, repo2)'
+                description: "Apply settings to selective repos.Comma-separated list of repo names (e.g. repo1, repo2)"
                 required: true
-        
+                type: string
+
             # Force recreation if the rule exists.
             force_recreate:
-                description: 'Force apply the settings if the rule already exists'
+                description: "Force apply the settings if the rule already exists"
                 required: false
                 type: boolean
                 default: false
+
+    schedule:
+        - cron: "0 0 * * *"
 
 jobs:
     configure-repo:
         runs-on: ubuntu-latest #[self-hosted, bolt-ubuntu]
         steps:
-        - name: Generate GitHub Access Token
-          id: generate_token
-          uses: actions/create-github-app-token@v2
-          with:
-            app-id: ${{ secrets.APP_ID }}
-            private-key: ${{ secrets.APP_PEM }}
-            owner: pm-org-1 #pfizer-analytics
+            - name: Generate GitHub Access Token
+              id: generate_token
+              uses: actions/create-github-app-token@v2
+              with:
+                  app-id: ${{ secrets.APP_ID }}
+                  private-key: ${{ secrets.APP_PEM }}
+                  owner: pm-org-1 #pfizer-analytics
 
-        - name: Checkout full history
-          uses: actions/checkout@v5
-          with:
-            fetch-depth: 0
-            token: ${{ steps.generate_token.outputs.token }}
+            - name: Checkout full history
+              uses: actions/checkout@v5
+              with:
+                  fetch-depth: 0
+                  token: ${{ steps.generate_token.outputs.token }}
 
-        - name: Configure Repository Settings
-          uses: actions/github-script@v8
-          with:
-            github-token: ${{ steps.generate_token.outputs.token }}
-            script: |
-                const owner = context.repo.owner;
-                core.info(`Owner: ${owner}`);
+            - name: Configure Repository Settings
+              uses: actions/github-script@v8
+              with:
+                  github-token: ${{ steps.generate_token.outputs.token }}
+                  script: |
+                        const fs = require('fs');
 
-                const reposInput = `${{ github.event.inputs.repos }}` || '';
-                core.info(`Repos Input: ${reposInput}`);
-                
-                if (!reposInput.trim()) {
-                    core.info('No repository names provided. Exiting.');
-                    return;
-                }
-                const repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
-
-                const forceRecreateInput = `${{ github.event.inputs.force_recreate }}`.toLowerCase();
-                const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1';
-                core.info(`Force recreate: ${forceRecreate}`);
-
-                const defaultBranches = ['main', 'dev'];
-                const teamSlugs = ['ias-team-admin'];
-                const approving_teams = [];
-                const githubAppId = 2271772;
-                const atlassianTeamServiceAccount = 'atlassian-team-service-account';
-                const requiredPfizerYml = [
-                        'cmdb_id: ~',
-                        'primary_contact: REZNIA01',
-                        'additional_contacts: DL-VOX-Dev@pfizer.com',
-                        'jira_project: IAS'
-                    ].join('\n');
-
-                const fs = require('fs');
-
-                // Get the team ID from slug
-                async function getTeamId(teamSlug) {
-                    try {
-                        const { data } = await github.rest.teams.getByName({
-                            org: owner,
-                            team_slug: teamSlug
-                        });
-                        return data.id;
-                    } catch (e) {
-                        core.setFailed(`Failed to get team ID for ${teamSlug}: ${e.message}`);
-                        throw e;
-                    }
-                }
-
-                // Fetch approving team IDs
-                for (const slug of teamSlugs) {
-                    const id = await getTeamId(slug);
-                    if (id) approving_teams.push({ type: 'Team', id });
-                }
-                core.info(`Approving teams: ${JSON.stringify(approving_teams)}`);
-
-                const environments = [
-                    {
-                        name: 'dev',
-                        reviewers: [],
-                        allow_admin_bypass: true,
-                        deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-                        deployment_branch_policies: [{ type: 'branch', name: 'dev' }]
-                    },
-                    {
-                        name: 'test',
-                        reviewers: approving_teams,
-                        allow_admin_bypass: true,
-                        deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-                        deployment_branch_policies: [{ type: 'branch', name: 'main' }]
-                    },
-                    {
-                        name: 'prod',
-                        reviewers: approving_teams,
-                        allow_admin_bypass: true,
-                        deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-                        deployment_branch_policies: [
-                            { type: 'tag', name: '*RC*' },
-                            { type: 'tag', name: '*V*' }
-                        ]
-                    }
-                ];
-
-                // Tag ruleset helpers
-                async function listTagRuleset(repo) {
-                    const { data } = await github.rest.repos.getRepoRulesets({ owner, repo });
-                    return data.find(r => r.target === 'tag' && r.name === 'Tag Protection');
-                }
-
-                async function createTagRuleset(repo) {
-                    await github.rest.repos.createRepoRuleset({
-                        owner,
-                        repo,
-                        name: 'Tag Protection',
-                        target: 'tag',
-                        enforcement: 'active',
-                        conditions: {
-                            ref_name: {
-                                exclude: [],
-                                include: ['refs/tags/*RC*', 'refs/tags/*V*']
+                        // Get the team ID from slug
+                        async function getTeamId(teamSlug) {
+                            try {
+                                const { data } = await github.rest.teams.getByName({
+                                    org: owner,
+                                    team_slug: teamSlug
+                                });
+                                return data.id;
+                            } catch (e) {
+                                core.setFailed(`Failed to get team ID for ${teamSlug}: ${e.message}`);
+                                throw e;
                             }
-                        },
-                        rules: [
-                            { type: 'creation' },
-                            { type: 'update' },
-                            { type: 'deletion' }
-                        ],
-                        bypass_actors: [
+                        }
+
+                        const owner = context.repo.owner;
+                        core.info(`Owner: ${owner}`);
+
+                        const reposInput = `${{ github.event.inputs.repos }}` || '';
+                        core.info(`Repos Input: ${reposInput}`);
+
+                        // Validate vox_team if apply_to_all_repos is true.
+                        const applyToAllReposInput = `${{ github.event.inputs.apply_to_all_repos }}`.toLowerCase();
+                        const applyToAllRepos = applyToAllReposInput === 'true' || applyToAllReposInput === '1';
+                        core.info(`Apply to all repos: ${applyToAllRepos}`);
+
+                        const voxTeamInput = `${{ github.event.inputs.vox_team }}`.trim();
+                        if (applyToAllRepos && !voxTeamInput) {
+                            core.setFailed('vox_team input must be provided when apply_to_all_repos is true.');
+                            return;
+                        }
+
+                        // Validate if provided VOX team exists.
+                        if (applyToAllRepos && voxTeamInput) {
+                            try {
+                                await getTeamId(voxTeamInput);
+                                core.info(`VOX team ${voxTeamInput} exists.`);
+                            } catch (e) {
+                                core.setFailed(`VOX team ${voxTeamInput} does not exist: ${e.message}`);
+                                return;
+                            }
+                        }
+
+                        if (!applyToAllRepos && !reposInput.trim()) {
+                            core.info('No repository names provided. Exiting.');
+                            return;
+                        }
+
+                        // applyToAllRepos takes precedence over repos input.
+                        let repos = [];
+
+                        if (!applyToAllRepos) {
+                            repos = reposInput.split(',').map(r => r.trim()).filter(Boolean);
+                        } else {
+                            // Fetch all repos under the specified VOX team
+                            try {
+                                const teamId = await getTeamId(voxTeamInput);
+                                let page = 1;
+                                const perPage = 100;
+                                let fetchedRepos = [];
+
+                                while (true) {
+                                    const { data } = await github.rest.teams.listReposInOrg({
+                                        org: owner,
+                                        team_slug: voxTeamInput,
+                                        per_page: perPage,
+                                        page
+                                    });
+                                    if (data.length === 0) break;
+                                    fetchedRepos = fetchedRepos.concat(data.map(r => r.name));
+                                    if (data.length < perPage) break;
+                                    page++;
+                                }
+
+                                repos = fetchedRepos;
+                                core.info(`Fetched ${repos.length} repos from team ${voxTeamInput}`);
+                            } catch (e) {
+                                core.setFailed(`Failed to fetch repos for team ${voxTeamInput}: ${e.message}`);
+                                return;
+                            }
+                        }
+
+                        const forceRecreateInput = `${{ github.event.inputs.force_recreate }}`.toLowerCase();
+                        const forceRecreate = forceRecreateInput === 'true' || forceRecreateInput === '1';
+                        core.info(`Force recreate: ${forceRecreate}`);
+
+                        // Default branches and settings
+                        const defaultBranches = ['main', 'dev'];
+                        const teamSlugs = ['ias-team-admin'];
+                        const approving_teams = [];
+                        const githubAppId = 2271772;
+                        const atlassianTeamServiceAccount = 'atlassian-team-service-account';
+                        const requiredPfizerYml = [
+                                'cmdb_id: ~',
+                                'primary_contact: REZNIA01',
+                                'additional_contacts: DL-VOX-Dev@pfizer.com',
+                                'jira_project: IAS'
+                            ].join('\n');
+
+                        // Fetch approving team IDs
+                        for (const slug of teamSlugs) {
+                            const id = await getTeamId(slug);
+                            if (id) approving_teams.push({ type: 'Team', id });
+                        }
+                        core.info(`Approving teams: ${JSON.stringify(approving_teams)}`);
+
+                        const environments = [
                             {
-                                actor_id: githubAppId,
-                                actor_type: 'Integration',
-                                bypass_mode: 'exempt'
+                                name: 'dev',
+                                reviewers: [],
+                                allow_admin_bypass: true,
+                                deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                                deployment_branch_policies: [{ type: 'branch', name: 'dev' }]
+                            },
+                            {
+                                name: 'test',
+                                reviewers: approving_teams,
+                                allow_admin_bypass: true,
+                                deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                                deployment_branch_policies: [{ type: 'branch', name: 'main' }]
+                            },
+                            {
+                                name: 'prod',
+                                reviewers: approving_teams,
+                                allow_admin_bypass: true,
+                                deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+                                deployment_branch_policies: [
+                                    { type: 'tag', name: '*RC*' },
+                                    { type: 'tag', name: '*V*' }
+                                ]
                             }
-                        ]
-                    });
-                    core.info('Created tag ruleset');
-                }
+                        ];
 
-                async function deleteTagRuleset(repo, rulesetId) {
-                    await github.rest.repos.deleteRepoRuleset({
-                        owner,
-                        repo,
-                        ruleset_id: rulesetId
-                    });
-                    core.info(`Deleted tag ruleset ${rulesetId}`);
-                }
+                        // Tag ruleset helpers
+                        async function listTagRuleset(repo) {
+                            const { data } = await github.rest.repos.getRepoRulesets({ owner, repo });
+                            return data.find(r => r.target === 'tag' && r.name === 'Tag Protection');
+                        }
 
-                // Environment helpers
-                async function createEnvironment(repo, env) {
-                    await github.rest.repos.createOrUpdateEnvironment({
-                        owner,
-                        repo,
-                        environment_name: env.name,
-                        reviewers: env.reviewers,
-                        deployment_branch_policy: env.deployment_branch_policy,
-                        wait_timer: 0,
-                        can_admins_bypass: env.allow_admin_bypass
-                    });
-                    core.info(`(Re)created environment ${env.name}`);
+                        async function createTagRuleset(repo) {
+                            await github.rest.repos.createRepoRuleset({
+                                owner,
+                                repo,
+                                name: 'Tag Protection',
+                                target: 'tag',
+                                enforcement: 'active',
+                                conditions: {
+                                    ref_name: {
+                                        exclude: [],
+                                        include: ['refs/tags/*RC*', 'refs/tags/*V*']
+                                    }
+                                },
+                                rules: [
+                                    { type: 'creation' },
+                                    { type: 'update' },
+                                    { type: 'deletion' }
+                                ],
+                                bypass_actors: [
+                                    {
+                                        actor_id: githubAppId,
+                                        actor_type: 'Integration',
+                                        bypass_mode: 'exempt'
+                                    }
+                                ]
+                            });
+                            core.info('Created tag ruleset');
+                        }
 
-                    if (env.deployment_branch_policies) {
-                        for (const policy of env.deployment_branch_policies) {
-                            await github.rest.repos.createDeploymentBranchPolicy({
+                        async function deleteTagRuleset(repo, rulesetId) {
+                            await github.rest.repos.deleteRepoRuleset({
+                                owner,
+                                repo,
+                                ruleset_id: rulesetId
+                            });
+                            core.info(`Deleted tag ruleset ${rulesetId}`);
+                        }
+
+                        // Environment helpers
+                        async function createEnvironment(repo, env) {
+                            await github.rest.repos.createOrUpdateEnvironment({
                                 owner,
                                 repo,
                                 environment_name: env.name,
-                                name: policy.name,
-                                type: policy.type
+                                reviewers: env.reviewers,
+                                deployment_branch_policy: env.deployment_branch_policy,
+                                wait_timer: 0,
+                                can_admins_bypass: env.allow_admin_bypass
                             });
-                            core.info(`Added deployment policy ${policy.name} to env ${env.name}`);
-                        }
-                    }
-                }
+                            core.info(`(Re)created environment ${env.name}`);
 
-                async function deleteEnvironment(repo, env) {
-                    await github.rest.repos.deleteAnEnvironment({
-                        owner,
-                        repo,
-                        environment_name: env.name
-                    });
-                    core.info(`Deleted environment ${env.name}`);
-                }
-
-                // Branch protection helper
-                async function protectBranch(repo, branch) {
-                    await github.rest.repos.updateBranchProtection({
-                        owner,
-                        repo,
-                        branch,
-                        required_linear_history: true,
-                        enforce_admins: false,
-                        required_pull_request_reviews: {
-                            require_code_owner_reviews: true,
-                            require_last_push_approval: true
-                        },
-                        required_conversation_resolution: true,
-                        required_status_checks: {
-                            strict: true,
-                            contexts: ['validate-pr-title']
-                        },
-                        restrictions: null,
-                        allow_force_pushes: false,
-                        allow_deletions: false
-                    });
-
-                    // Required signatures (separate)
-                    try {
-                        await github.rest.repos.createCommitSignatureProtection({
-                            owner,
-                            repo,
-                            branch
-                        });
-                    } catch (e) {
-                        // Ignore if already enabled or not supported
-                    }
-                    core.info(`Applied branch protection to ${branch}`);
-                }
-
-                for (const repo of repos) {
-                    core.startGroup(`Configuring ${owner}/${repo}`);
-
-                    // Repo settings
-                    try {
-                        await github.rest.repos.update({
-                            owner,
-                            repo,
-                            allow_squash_merge: true,
-                            delete_branch_on_merge: true,
-                            allow_auto_merge: false,
-                            squash_merge_commit_title: 'PR_TITLE',
-                            squash_merge_commit_message: 'PR_BODY'
-                        });
-                        core.info('Updated repository settings');
-                    } catch (e) {
-                        if (e.status === 404) {
-                            core.info(`Skipping missing repo ${repo}`);
-                            core.endGroup();
-                            continue;
-                        }
-                        core.setFailed(`Repo update failed: ${e.message}`);
-                        core.endGroup();
-                        continue;
-                    }
-
-                    // pr-title-check workflow
-                    let existingSha;
-                    try {
-                        const { data } = await github.rest.repos.getContent({
-                            owner,
-                            repo,
-                            path: '.github/workflows/pr-title-check.yml'
-                        });
-                        existingSha = data.sha;
-                        core.info('pr-title-check.yml exists');
-                    } catch {
-                        core.info('pr-title-check.yml missing');
-                    }
-
-                    const prTitleCheckYml = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/workflows/templates/pr-title-check.yml`, 'utf8');
-                    await github.rest.repos.createOrUpdateFileContents({
-                        owner,
-                        repo,
-                        path: '.github/workflows/pr-title-check.yml',
-                        message: existingSha ? 'Update pr-title-check workflow' : 'Add pr-title-check workflow',
-                        content: Buffer.from(prTitleCheckYml).toString('base64'),
-                        committer: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
-                        author: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
-                        ...(existingSha ? { sha: existingSha } : {})
-                    });
-                    core.info('Ensured pr-title-check.yml');
-
-                    // Branch + protection
-                    for (const branch of defaultBranches) {
-                        let branchExists = true;
-                        try {
-                            await github.rest.repos.getBranch({ owner, repo, branch });
-                        } catch (e) {
-                            branchExists = false;
-                        }
-
-                        if (!branchExists) {
-                            if (branch === 'main') {
-                                core.info('main branch missing; skipping protection');
-                                continue;
-                            }
-                            try {
-                                const { data: mainRef } = await github.rest.git.getRef({
-                                    owner,
-                                    repo,
-                                    ref: 'heads/main'
-                                });
-                                await github.rest.git.createRef({
-                                    owner,
-                                    repo,
-                                    ref: `refs/heads/${branch}`,
-                                    sha: mainRef.object.sha
-                                });
-                                core.info(`Created branch ${branch} from main`);
-                            } catch (e) {
-                                core.warning(`Failed to create branch ${branch}: ${e.message}`);
-                                continue;
+                            if (env.deployment_branch_policies) {
+                                for (const policy of env.deployment_branch_policies) {
+                                    await github.rest.repos.createDeploymentBranchPolicy({
+                                        owner,
+                                        repo,
+                                        environment_name: env.name,
+                                        name: policy.name,
+                                        type: policy.type
+                                    });
+                                    core.info(`Added deployment policy ${policy.name} to env ${env.name}`);
+                                }
                             }
                         }
-                        await protectBranch(repo, branch);
-                    }
 
-                    // Tag ruleset
-                    try {
-                        const existing = await listTagRuleset(repo);
-                        if (!existing) {
-                            await createTagRuleset(repo);
-                        } else if (existing && forceRecreate) {
-                            core.info('Recreating tag ruleset');
-                            await deleteTagRuleset(repo, existing.id);
-                            await createTagRuleset(repo);
-                        } else {
-                            core.info('Tag ruleset exists; skipping');
-                        }
-                    } catch (e) {
-                        core.setFailed(`Tag ruleset error: ${e.message}`);
-                        core.endGroup();
-                        continue;
-                    }
-
-                    // Environments
-                    for (const env of environments) {
-                        let envExists = true;
-                        try {
-                            await github.rest.repos.getEnvironment({
+                        async function deleteEnvironment(repo, env) {
+                            await github.rest.repos.deleteAnEnvironment({
                                 owner,
                                 repo,
                                 environment_name: env.name
                             });
-                        } catch (e) {
-                            if (e.status === 404) envExists = false;
-                            else throw e;
+                            core.info(`Deleted environment ${env.name}`);
                         }
 
-                        if (envExists && forceRecreate) {
-                            await deleteEnvironment(repo, env);
-                            await createEnvironment(repo, env);
-                        } else if (!envExists) {
-                            await createEnvironment(repo, env);
-                        } else {
-                            core.info(`Environment ${env.name} exists; skip (no force)`);
+                        // Branch protection helper
+                        async function protectBranch(repo, branch) {
+                            await github.rest.repos.updateBranchProtection({
+                                owner,
+                                repo,
+                                branch,
+                                required_linear_history: true,
+                                enforce_admins: false,
+                                required_pull_request_reviews: {
+                                    require_code_owner_reviews: true,
+                                    require_last_push_approval: true
+                                },
+                                required_conversation_resolution: true,
+                                required_status_checks: {
+                                    strict: true,
+                                    contexts: ['validate-pr-title']
+                                },
+                                restrictions: null,
+                                allow_force_pushes: false,
+                                allow_deletions: false
+                            });
+
+                            // Required signatures (separate)
+                            try {
+                                await github.rest.repos.createCommitSignatureProtection({
+                                    owner,
+                                    repo,
+                                    branch
+                                });
+                            } catch (e) {
+                                // Ignore if already enabled or not supported
+                            }
+                            core.info(`Applied branch protection to ${branch}`);
                         }
-                    }
 
-                    // SonarQube project properties
-                    const sonarPropsPath = 'sonar-project.properties';
-                    const expectedProjectKey = `${owner}_${repo}`;
-                    let sonarSha;
-                    let needsUpdate = false;
-                    let sonarPropsContent = `sonar.projectKey=${expectedProjectKey}`;
+                        for (const repo of repos) {
+                            core.startGroup(`Configuring ${owner}/${repo}`);
 
-                    try {
-                        const { data } = await github.rest.repos.getContent({
-                            owner,
-                            repo,
-                            path: sonarPropsPath
-                        });
-                        sonarSha = data.sha;
-                        const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
-                        const regex = /^sonar\.projectKey=(.+)$/m;
-                        const match = decoded.match(regex);
-                        if (!match || match[1] !== expectedProjectKey) {
-                            if (regex.test(decoded)) {
-                                sonarPropsContent = decoded.replace(regex, `sonar.projectKey=${expectedProjectKey}`);
+                            // Repo settings
+                            try {
+                                await github.rest.repos.update({
+                                    owner,
+                                    repo,
+                                    allow_squash_merge: true,
+                                    delete_branch_on_merge: true,
+                                    allow_auto_merge: false,
+                                    squash_merge_commit_title: 'PR_TITLE',
+                                    squash_merge_commit_message: 'PR_BODY'
+                                });
+                                core.info('Updated repository settings');
+                            } catch (e) {
+                                if (e.status === 404) {
+                                    core.info(`Skipping missing repo ${repo}`);
+                                    core.endGroup();
+                                    continue;
+                                }
+                                core.setFailed(`Repo update failed: ${e.message}`);
+                                core.endGroup();
+                                continue;
+                            }
+
+                            // pr-title-check workflow
+                            let existingSha;
+                            try {
+                                const { data } = await github.rest.repos.getContent({
+                                    owner,
+                                    repo,
+                                    path: '.github/workflows/pr-title-check.yml'
+                                });
+                                existingSha = data.sha;
+                                core.info('pr-title-check.yml exists');
+                            } catch {
+                                core.info('pr-title-check.yml missing');
+                            }
+
+                            const prTitleCheckYml = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/workflows/templates/pr-title-check.yml`, 'utf8');
+                            await github.rest.repos.createOrUpdateFileContents({
+                                owner,
+                                repo,
+                                path: '.github/workflows/pr-title-check.yml',
+                                message: existingSha ? 'Update pr-title-check workflow' : 'Add pr-title-check workflow',
+                                content: Buffer.from(prTitleCheckYml).toString('base64'),
+                                committer: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
+                                author: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
+                                ...(existingSha ? { sha: existingSha } : {})
+                            });
+                            core.info('Ensured pr-title-check.yml');
+
+                            // Branch + protection
+                            for (const branch of defaultBranches) {
+                                let branchExists = true;
+                                try {
+                                    await github.rest.repos.getBranch({ owner, repo, branch });
+                                } catch (e) {
+                                    branchExists = false;
+                                }
+
+                                if (!branchExists) {
+                                    if (branch === 'main') {
+                                        core.info('main branch missing; skipping protection');
+                                        continue;
+                                    }
+                                    try {
+                                        const { data: mainRef } = await github.rest.git.getRef({
+                                            owner,
+                                            repo,
+                                            ref: 'heads/main'
+                                        });
+                                        await github.rest.git.createRef({
+                                            owner,
+                                            repo,
+                                            ref: `refs/heads/${branch}`,
+                                            sha: mainRef.object.sha
+                                        });
+                                        core.info(`Created branch ${branch} from main`);
+                                    } catch (e) {
+                                        core.warning(`Failed to create branch ${branch}: ${e.message}`);
+                                        continue;
+                                    }
+                                }
+                                await protectBranch(repo, branch);
+                            }
+
+                            // Tag ruleset
+                            try {
+                                const existing = await listTagRuleset(repo);
+                                if (!existing) {
+                                    await createTagRuleset(repo);
+                                } else if (existing && forceRecreate) {
+                                    core.info('Recreating tag ruleset');
+                                    await deleteTagRuleset(repo, existing.id);
+                                    await createTagRuleset(repo);
+                                } else {
+                                    core.info('Tag ruleset exists; skipping');
+                                }
+                            } catch (e) {
+                                core.setFailed(`Tag ruleset error: ${e.message}`);
+                                core.endGroup();
+                                continue;
+                            }
+
+                            // Environments
+                            for (const env of environments) {
+                                let envExists = true;
+                                try {
+                                    await github.rest.repos.getEnvironment({
+                                        owner,
+                                        repo,
+                                        environment_name: env.name
+                                    });
+                                } catch (e) {
+                                    if (e.status === 404) envExists = false;
+                                    else throw e;
+                                }
+
+                                if (envExists && forceRecreate) {
+                                    await deleteEnvironment(repo, env);
+                                    await createEnvironment(repo, env);
+                                } else if (!envExists) {
+                                    await createEnvironment(repo, env);
+                                } else {
+                                    core.info(`Environment ${env.name} exists; skip (no force)`);
+                                }
+                            }
+
+                            // SonarQube project properties
+                            const sonarPropsPath = 'sonar-project.properties';
+                            const expectedProjectKey = `${owner}_${repo}`;
+                            let sonarSha;
+                            let needsUpdate = false;
+                            let sonarPropsContent = `sonar.projectKey=${expectedProjectKey}`;
+
+                            try {
+                                const { data } = await github.rest.repos.getContent({
+                                    owner,
+                                    repo,
+                                    path: sonarPropsPath
+                                });
+                                sonarSha = data.sha;
+                                const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
+                                const regex = /^sonar\.projectKey=(.+)$/m;
+                                const match = decoded.match(regex);
+                                if (!match || match[1] !== expectedProjectKey) {
+                                    if (regex.test(decoded)) {
+                                        sonarPropsContent = decoded.replace(regex, `sonar.projectKey=${expectedProjectKey}`);
+                                    } else {
+                                        sonarPropsContent = `${decoded.trim()}\nsonar.projectKey=${expectedProjectKey}\n`;
+                                    }
+                                    needsUpdate = true;
+                                } else {
+                                    core.info('Sonar project key correct');
+                                }
+                            } catch (e) {
+                                if (e.status === 404) {
+                                    needsUpdate = true;
+                                } else {
+                                    core.setFailed(`Sonar file check failed: ${e.message}`);
+                                }
+                            }
+
+                            if (needsUpdate) {
+                                await github.rest.repos.createOrUpdateFileContents({
+                                    owner,
+                                    repo,
+                                    path: sonarPropsPath,
+                                    message: 'Ensure sonar-project.properties with correct project key',
+                                    content: Buffer.from(sonarPropsContent).toString('base64'),
+                                    ...(sonarSha ? { sha: sonarSha } : {})
+                                });
+                                core.info('Updated sonar-project.properties');
+                            }
+
+                            // Team permissions
+                            //try {
+                                // Using github request instead of rest to set permission since rest API has a bug.
+                                await github.request('PUT /orgs/{org}/teams/{team_slug}/repos/{owner}/{repo}', {
+                                    org: owner,
+                                    team_slug: atlassianTeamServiceAccount,
+                                    owner,
+                                    repo,
+                                    permission: 'push'
+                                });
+                                core.info(`Added team ${atlassianTeamServiceAccount} with push`);
+                            } catch (e) {
+                                if (e.status === 404) {
+                                    core.warning(`Team or repo not found for team permission: ${atlassianTeamServiceAccount} on ${repo}`);
+                                } else {
+                                    core.setFailed(`Failed to set team permissions: ${e.message}`);
+                                }
+                            }
+
+                            // Ensure .pfizer.yml has required content
+                            const pfizerConfigPath = '.pfizer.yml';                   
+
+                            let pfizerSha;
+                            let pfizerContent = '';
+                            let needsPfizerUpdate = false;
+
+                            try {
+                                const { data } = await github.rest.repos.getContent({
+                                    owner,
+                                    repo,
+                                    path: pfizerConfigPath
+                                });
+                                pfizerSha = data.sha;
+                                pfizerContent = Buffer.from(data.content, 'base64').toString('utf-8');
+
+                                // Parse .pfizer.yml as key-value pairs
+                                const pfizerMap = {};
+                                pfizerContent.split('\n').forEach(line => {
+                                    const [k, ...v] = line.split(':');
+                                    if (k && v.length) pfizerMap[k.trim()] = v.join(':').trim();
+                                });
+
+                                // Check if all required keys/values exist and match
+                                for (const reqLine of requiredPfizerYml.split('\n')) {
+                                    const [reqKey, ...reqVal] = reqLine.split(':');
+                                    if (!reqKey || reqVal.length === 0) continue;
+                                    const key = reqKey.trim();
+                                    const val = reqVal.join(':').trim();
+                                    if (!(key in pfizerMap) || pfizerMap[key] !== val) {
+                                        needsPfizerUpdate = true;
+                                        break;
+                                    }
+                                }
+                            } catch (e) {
+                                if (e.status === 404) {
+                                    needsPfizerUpdate = true;
+                                } else {
+                                    core.setFailed(`Failed to check .pfizer.yml: ${e.message}`);
+                                }
+                            }
+
+                            if (needsPfizerUpdate) {
+                                // Merge required lines with existing content, updating by key
+                                const pfizerMap = {};
+                                pfizerContent.split('\n').forEach(line => {
+                                    const [k, ...v] = line.split(':');
+                                    if (k && v.length) pfizerMap[k.trim()] = v.join(':').trim();
+                                });
+                                for (const reqLine of requiredPfizerYml.split('\n')) {
+                                    const [reqKey, ...reqVal] = reqLine.split(':');
+                                    if (!reqKey || reqVal.length === 0) continue;
+                                    pfizerMap[reqKey.trim()] = reqVal.join(':').trim();
+                                }
+                                let newPfizerContent = Object.entries(pfizerMap)
+                                    .map(([k, v]) => `${k}: ${v}`)
+                                    .join('\n');
+                                if (!pfizerContent) newPfizerContent = requiredPfizerYml;
+
+                                await github.rest.repos.createOrUpdateFileContents({
+                                    owner,
+                                    repo,
+                                    path: pfizerConfigPath,
+                                    message: pfizerSha ? 'Update .pfizer.yml for required fields' : 'Add default .pfizer.yml for code scanning',
+                                    content: Buffer.from(newPfizerContent).toString('base64'),
+                                    ...(pfizerSha ? { sha: pfizerSha } : {})
+                                });
+                                core.info('Ensured .pfizer.yml has required content');
                             } else {
-                                sonarPropsContent = `${decoded.trim()}\nsonar.projectKey=${expectedProjectKey}\n`;
+                                core.info('.pfizer.yml already contains required content');
                             }
-                            needsUpdate = true;
-                        } else {
-                            core.info('Sonar project key correct');
+
+                            core.endGroup();
                         }
-                    } catch (e) {
-                        if (e.status === 404) {
-                            needsUpdate = true;
-                        } else {
-                            core.setFailed(`Sonar file check failed: ${e.message}`);
-                        }
-                    }
-
-                    if (needsUpdate) {
-                        await github.rest.repos.createOrUpdateFileContents({
-                            owner,
-                            repo,
-                            path: sonarPropsPath,
-                            message: 'Ensure sonar-project.properties with correct project key',
-                            content: Buffer.from(sonarPropsContent).toString('base64'),
-                            ...(sonarSha ? { sha: sonarSha } : {})
-                        });
-                        core.info('Updated sonar-project.properties');
-                    }
-
-                    // Get team details by slug and set permissions
-                    respo =await github.rest.teams.getByName({
-                        org: owner,
-                        team_slug: atlassianTeamServiceAccount
-                    });
-                    core.info(`Fetched team ${atlassianTeamServiceAccount} details`);
-                    core.info(`Team details: ${JSON.stringify(respo.data, null, 2)}`);
-
-                    // Team permissions
-                    //try {
-                        await github.request('PUT /orgs/{org}/teams/{team_slug}/repos/{owner}/{repo}', {
-                            org: owner,
-                            team_slug: atlassianTeamServiceAccount,
-                            owner,
-                            repo,
-                            permission: 'push'
-                        });
-                        core.info(`Added team ${atlassianTeamServiceAccount} with push`);
-                    /*} catch (e) {
-                        if (e.status === 404) {
-                            core.warning(`Team or repo not found for team permission: ${atlassianTeamServiceAccount} on ${repo}`);
-                        } else {
-                            core.setFailed(`Failed to set team permissions: ${e.message}`);
-                        }
-                    }*/
-
-                    // Ensure .pfizer.yml has required content
-                    const pfizerConfigPath = '.pfizer.yml';                   
-
-                    let pfizerSha;
-                    let pfizerContent = '';
-                    let needsPfizerUpdate = false;
-
-                    try {
-                        const { data } = await github.rest.repos.getContent({
-                            owner,
-                            repo,
-                            path: pfizerConfigPath
-                        });
-                        pfizerSha = data.sha;
-                        pfizerContent = Buffer.from(data.content, 'base64').toString('utf-8');
-
-                        // Parse .pfizer.yml as key-value pairs
-                        const pfizerMap = {};
-                        pfizerContent.split('\n').forEach(line => {
-                            const [k, ...v] = line.split(':');
-                            if (k && v.length) pfizerMap[k.trim()] = v.join(':').trim();
-                        });
-
-                        // Check if all required keys/values exist and match
-                        for (const reqLine of requiredPfizerYml.split('\n')) {
-                            const [reqKey, ...reqVal] = reqLine.split(':');
-                            if (!reqKey || reqVal.length === 0) continue;
-                            const key = reqKey.trim();
-                            const val = reqVal.join(':').trim();
-                            if (!(key in pfizerMap) || pfizerMap[key] !== val) {
-                                needsPfizerUpdate = true;
-                                break;
-                            }
-                        }
-                    } catch (e) {
-                        if (e.status === 404) {
-                            needsPfizerUpdate = true;
-                        } else {
-                            core.setFailed(`Failed to check .pfizer.yml: ${e.message}`);
-                        }
-                    }
-
-                    if (needsPfizerUpdate) {
-                        // Merge required lines with existing content, updating by key
-                        const pfizerMap = {};
-                        pfizerContent.split('\n').forEach(line => {
-                            const [k, ...v] = line.split(':');
-                            if (k && v.length) pfizerMap[k.trim()] = v.join(':').trim();
-                        });
-                        for (const reqLine of requiredPfizerYml.split('\n')) {
-                            const [reqKey, ...reqVal] = reqLine.split(':');
-                            if (!reqKey || reqVal.length === 0) continue;
-                            pfizerMap[reqKey.trim()] = reqVal.join(':').trim();
-                        }
-                        let newPfizerContent = Object.entries(pfizerMap)
-                            .map(([k, v]) => `${k}: ${v}`)
-                            .join('\n');
-                        if (!pfizerContent) newPfizerContent = requiredPfizerYml;
-
-                        await github.rest.repos.createOrUpdateFileContents({
-                            owner,
-                            repo,
-                            path: pfizerConfigPath,
-                            message: pfizerSha ? 'Update .pfizer.yml for required fields' : 'Add default .pfizer.yml for code scanning',
-                            content: Buffer.from(newPfizerContent).toString('base64'),
-                            ...(pfizerSha ? { sha: pfizerSha } : {})
-                        });
-                        core.info('Ensured .pfizer.yml has required content');
-                    } else {
-                        core.info('.pfizer.yml already contains required content');
-                    }
-
-                    core.endGroup();
-                }
