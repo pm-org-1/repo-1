@@ -416,9 +416,10 @@ jobs:
 
                     // Team permissions
                     //try {
-                        await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
+                        await github.request('PUT /orgs/{org}/teams/{team_slug}/repos/{owner}/{repo}', {
                             org: owner,
-                            team_slug: 14912079,
+                            team_slug: atlassianTeamServiceAccount,
+                            owner,
                             repo,
                             permission: 'push'
                         });
