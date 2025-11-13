@@ -16,8 +16,6 @@ on:
                 description: "Apply settings to selective repos. Provide comma-separated list of repos (e.g. repo1, repo2)"
                 required: false
                 type: string
-
-            # Force recreation if the rule exists.
             force_recreate:
                 description: "Force apply the settings if the rule already exists"
                 required: false
@@ -95,7 +93,7 @@ jobs:
                         }
 
                         if (!applyToAllRepos && !reposInput.trim()) {
-                            core.info('No repository names provided. Exiting.');
+                            core.setFailed('No repository names provided. Exiting.');
                             return;
                         }
 
@@ -478,8 +476,7 @@ jobs:
 
                             // Team permissions
                             try {
-                                // Since rest API has a bug, using github request instead of rest to set permission 
-                                await github.request('PUT /orgs/{org}/teams/{team_slug}/repos/{owner}/{repo}', {
+                                await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
                                     org: owner,
                                     team_slug: atlassianTeamServiceAccount,
                                     owner,
