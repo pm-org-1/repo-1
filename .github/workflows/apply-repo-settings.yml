@@ -412,7 +412,7 @@ jobs:
                         team_slug: atlassianTeamServiceAccount
                     });
                     core.info(`Fetched team ${atlassianTeamServiceAccount} details`);
-                    core.info(`Team ID: ${respo.data}`);
+                    core.info(`Team details: ${JSON.stringify(respo.data, null, 2)}`);
 
                     // Team permissions
                     //try {
