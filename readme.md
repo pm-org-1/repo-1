@@ -54,7 +54,7 @@ Precedence: `apply_to_all_repos=true` ignores `repos`.
 ```mermaid
 graph TD
     A[Start / Cron / Dispatch] --> B[Auth via GitHub App]
-    B --> C[Derive repo list (team or explicit)]
+    B --> C["Derive repo list (team or explicit)"]
     C --> D{For each repo}
     D --> E[Update repo settings]
     E --> F[Ensure PR title workflow]
