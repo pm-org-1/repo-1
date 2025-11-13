@@ -13,8 +13,8 @@ on:
                 type: boolean
                 default: true
             repos:
-                description: "Apply settings to selective repos.Comma-separated list of repo names (e.g. repo1, repo2)"
-                required: true
+                description: "Apply settings to selective repos. Provide comma-separated list of repos (e.g. repo1, repo2)"
+                required: false
                 type: string
 
             # Force recreation if the rule exists.
@@ -477,8 +477,8 @@ jobs:
                             }
 
                             // Team permissions
-                            //try {
-                                // Using github request instead of rest to set permission since rest API has a bug.
+                            try {
+                                // Since rest API has a bug, using github request instead of rest to set permission 
                                 await github.request('PUT /orgs/{org}/teams/{team_slug}/repos/{owner}/{repo}', {
                                     org: owner,
                                     team_slug: atlassianTeamServiceAccount,
