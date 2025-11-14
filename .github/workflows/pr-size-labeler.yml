@@ -1,5 +1,5 @@
 ---
-name: PR Size Labeler and Enforcera
+name: PR Size Labeler and Enforcer
 
 on:
   pull_request:
