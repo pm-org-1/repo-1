@@ -53,21 +53,34 @@ Precedence: `apply_to_all_repos=true` ignores `repos`.
 ## High-Level Flow
 ```mermaid
 graph TD
-    A[Start / Cron / Dispatch] --> B[Auth via GitHub App]
+    A[Cron / Dispatch] --> B[Auth via GitHub App]
     B --> C["Derive repo list (team or explicit)"]
     C --> D{For each repo}
-    D --> E[Update repo settings]
-    E --> F[Ensure PR title workflow]
-    F --> G[Create dev if needed]
-    G --> H[Apply branch protection]
-    H --> I[Create/Refresh tag ruleset]
+    D --> E[Update repo settings]    
+    E --> G[Create dev if not present]    
+    G --> I[Create/Refresh tag ruleset]
     I --> J[Create/Refresh environments]
-    J --> K[Sync sonar-project.properties]
-    K --> L[Validate .pfizer.yml]
-    L --> M[Grant team permissions]
-    M --> N{More repos?}
-    N -->|Yes| D
-    N -->|No| O[Done]
+    J --> K[Grant Jira team permissions]    
+    subgraph Update workflows from Template Repo
+        K --> L[Ensure sonar-project.properties is up to date]
+        L --> M[Validate .pfizer.yml are up to date]
+        M --> N[Ensure PR title workflow is up to date]
+        N --> O[Ensure PR Size Labeler is up to date]
+        O --> P[Ensure all Linters are up to date]
+        P --> Q[Ensure Pre commit hooks are up to date]
+    end
+    subgraph Add Jobs to PR Status Checks
+        Q --> R[PR Size Labeler]
+        R --> S[Pre-Commit Checks]
+        S --> T[CFN Linter]
+        T --> U[SonarQube Scan]
+    end
+    U --> V[Apply branch protections]
+    V --> W{More repos?}
+    W -->|Yes| D
+    W -->|No| X[Done]
+    
+    
 ```
 
 ## Required Assets
