@@ -1,0 +1,62 @@
+---
+name: PR Size Labeler and Enforcer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  statuses: write
+  issues: write
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-labeler:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.IAS_GENAI_APP_ID }}
+          private-key: ${{ secrets.IAS_GENAI_APP_SECRET }}
+          owner: pfizer-analytics
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Set pull request size
+        if: >-
+          github.event_name == 'pull_request' ||
+          github.event_name == 'pull_request_review'
+        env:
+          GITHUB_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_ENTERPRISE_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SKIP_TYPES: "aml,arxml,json,md,suppress,txt,xml,xodr,xosc,yaml"
+          SIZE_XS_LABEL: "size/XS"
+          SIZE_XS_THRESHOLD: 10
+          SIZE_S_LABEL: "size/S"
+          SIZE_S_THRESHOLD: 30
+          SIZE_M_LABEL: "size/M"
+          SIZE_M_THRESHOLD: 100
+          SIZE_L_LABEL: "size/L"
+          SIZE_L_THRESHOLD: 500
+          SIZE_XL_LABEL: "size/XL"
+          SIZE_XL_THRESHOLD: 1000
+          SIZE_XXL_LABEL: "size/XXL"
+          MESSAGE_IF_OVER_XXL: |
+            🔥 ❌ **This PR is too big and was auto-rejected!** ❌ 🔥
+            ️ **PR size guide:**
+            ️ https://google.github.io/eng-practices/review/developer/small-cls.html ⚠️
+            💡If this is a mistake, reach out to the ias-vessel-platform team💡
+        run: python3 .github/scripts/add-pr-size-label.py
