@@ -141,6 +141,7 @@ jobs:
                         const approving_teams = [];
                         const githubAppId = 2271772;
                         const atlassianTeamServiceAccount = 'atlassian-team-service-account';
+                        const templateRepo = 'ias-repo-template';
                         const requiredPfizerYml = [
                                 'cmdb_id: ~',
                                 'primary_contact: REZNIA01',
@@ -322,33 +323,6 @@ jobs:
                                 core.endGroup();
                                 continue;
                             }
-
-                            // pr-title-check workflow
-                            let existingSha;
-                            try {
-                                const { data } = await github.rest.repos.getContent({
-                                    owner,
-                                    repo,
-                                    path: '.github/workflows/pr-title-check.yml'
-                                });
-                                existingSha = data.sha;
-                                core.info('pr-title-check.yml exists');
-                            } catch {
-                                core.info('pr-title-check.yml missing');
-                            }
-
-                            const prTitleCheckYml = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/workflows/templates/pr-title-check.yml`, 'utf8');
-                            await github.rest.repos.createOrUpdateFileContents({
-                                owner,
-                                repo,
-                                path: '.github/workflows/pr-title-check.yml',
-                                message: existingSha ? 'Update pr-title-check workflow' : 'Add pr-title-check workflow',
-                                content: Buffer.from(prTitleCheckYml).toString('base64'),
-                                committer: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
-                                author: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
-                                ...(existingSha ? { sha: existingSha } : {})
-                            });
-                            core.info('Ensured pr-title-check.yml');
 
                             // Branch + protection
                             for (const branch of defaultBranches) {
@@ -562,6 +536,72 @@ jobs:
                                 core.info('Ensured .pfizer.yml has required content');
                             } else {
                                 core.info('.pfizer.yml already contains required content');
+                            }
+
+                            // Copy all workflow files from template repo.
+                            try {
+                                // List workflow files in template repo
+                                const templateOwner = owner;
+                                const workflowDir = '.github/workflows';
+
+                                const { data: dirContent } = await github.rest.repos.getContent({
+                                    owner: templateOwner,
+                                    repo: templateRepo,
+                                    path: workflowDir
+                                });
+
+                                // Only files (ignore subfolders)
+                                const workflowFiles = dirContent.filter(item => item.type === 'file');
+
+                                for (const file of workflowFiles) {
+                                    const templateFileName = file.name;
+                                    const templateFilePath = `${workflowDir}/${templateFileName}`;
+
+                                    // Get template file content
+                                    const { data: templateFileData } = await github.rest.repos.getContent({
+                                        owner: templateOwner,
+                                        repo: templateRepo,
+                                        path: templateFilePath
+                                    });
+                                    const templateContent = Buffer.from(templateFileData.content, 'base64').toString('utf-8');
+
+                                    // Check if file exists in target repo
+                                    let targetSha = null;
+                                    let needsUpdate = true;
+                                    try {
+                                        const { data: targetFileData } = await github.rest.repos.getContent({
+                                            owner,
+                                            repo,
+                                            path: templateFilePath
+                                        });
+                                        targetSha = targetFileData.sha;
+                                        const targetContent = Buffer.from(targetFileData.content, 'base64').toString('utf-8');
+                                        if (targetContent === templateContent) {
+                                            needsUpdate = false;
+                                            core.info(`${templateFilePath} is up-to-date`);
+                                        }
+                                    } catch (e) {
+                                        if (e.status !== 404) throw e;
+                                        // File does not exist, needs to be created
+                                    }
+
+                                    if (needsUpdate) {
+                                        await github.rest.repos.createOrUpdateFileContents({
+                                            owner,
+                                            repo,
+                                            path: templateFilePath,
+                                            message: targetSha ? `Update ${templateFileName} from template` : `Add ${templateFileName} from template`,
+                                            content: Buffer.from(templateContent).toString('base64'),
+                                            committer: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
+                                            author: { name: 'github-actions[bot]', email: 'praveena.m@pfizer.com' },
+                                            ...(targetSha ? { sha: targetSha } : {})
+                                        });
+                                        core.info(`Copied/updated ${templateFilePath} from template`);
+                                    }
+                                core.info(`Ensured all the workflows are up-to-date`)
+                                }
+                            } catch (e) {
+                                core.warning(`Failed to copy workflow files from template: ${e.message}`);
                             }
 
                             core.endGroup();
